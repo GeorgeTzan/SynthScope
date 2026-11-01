@@ -29,10 +29,12 @@ def meta_analyze[M](
 
     walk(partial, ())
     hypo_set = set(hypo)
-    bot, must, may = domain.bottom(), domain.must(), domain.may()
+    bot, must, may, const = domain.bottom(), domain.must(), domain.may(), domain.const()
 
     def init_f(p: Path) -> M:
-        return may if p in hypo_set or isinstance(nodes[p], Const | Var) else bot
+        if p in hypo_set:
+            return may
+        return const if isinstance(nodes[p], Const | Var) else bot
 
     def init_b(p: Path) -> M:
         return may if p == () else must

@@ -22,6 +22,9 @@ class ToyConcat:
     def may(self) -> Meta:
         return MAY
 
+    def const(self) -> Meta:
+        return MAY
+
     def join(self, a: Meta, b: Meta) -> Meta:
         return max(a, b)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hope_engine.concrete.bitvector import eval_bv
+from hope_engine.concrete.string import eval_str
 from hope_engine.syntax.ast import Node
 
 
@@ -15,8 +16,9 @@ class Example:
 
 
 def satisfies(program: Node, examples: tuple[Example, ...], width: int | None = None) -> bool:
+    """Check every example. width=None means a string/int program; otherwise a bitvector program."""
     if width is None:
-        raise ValueError("width required for bitvector programs")
+        return all(eval_str(program, ex.inputs) == ex.output for ex in examples)
     mask = (1 << width) - 1
     for ex in examples:
         env = {k: v for k, v in ex.inputs.items() if isinstance(v, int)}
