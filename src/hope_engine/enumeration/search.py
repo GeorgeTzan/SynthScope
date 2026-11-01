@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import heapq
+import itertools
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
 from hope_engine.concrete.bitvector import UnsupportedOperator
 from hope_engine.concrete.verify import Example, satisfies
 from hope_engine.enumeration.components import ComponentMap, add_components
+from hope_engine.enumeration.multifill import fill_selected
 from hope_engine.syntax.ast import (
     Hole,
     Node,
@@ -17,7 +20,6 @@ from hope_engine.syntax.ast import (
     Path,
     holes,
     pretty,
-    replace_at,
     size,
     subterm,
 )
@@ -60,10 +62,18 @@ class Analyzer(Protocol):
         ...
 
 
+Emit = Callable[[str, dict[str, object] | None], None]
+
+
+def _no_emit(kind: str, payload: dict[str, object] | None = None) -> None:
+    return None
+
+
 @dataclass(frozen=True)
 class PickContext:
     problem: Problem
     comps: ComponentMap
+    emit: Emit = _no_emit
 
 
 class HolePolicy(Protocol):
@@ -138,7 +148,7 @@ def search(
     em = Emitter(run_id, sink)
     comps = ComponentMap()
     add_components(problem.grammar, comps, component_size)
-    ctx = PickContext(problem, comps)
+    ctx = PickContext(problem, comps, em.emit)
     productive = productive_nonterminals(problem.grammar)
     root: Node = Hole(problem.grammar.start)
     if problem.grammar.start not in productive:
@@ -175,11 +185,21 @@ def search(
                 em.emit("pruned", {"program": pretty(partial), "reason": "infeasible"})
                 continue
             positions, noprune = policy.pick(partial, ctx)
-            pos = positions[0]  # [ponytail: single-hole fill until Task 7 adds multi-hole]
-            hole = subterm(partial, pos)
-            assert isinstance(hole, Hole)
-            for c in (*comps.get(hole.nonterminal), *_expansions(problem.grammar, hole.nonterminal)):
-                child = replace_at(partial, pos, c)
+            cand_lists: list[list[Node]] = []
+            for pos in positions:
+                hole = subterm(partial, pos)
+                assert isinstance(hole, Hole)
+                every = (*comps.get(hole.nonterminal), *_expansions(problem.grammar, hole.nonterminal))
+                kept = [
+                    c
+                    for c in every
+                    if noprune or analyzer.compatible(result, partial, pos, c, problem.examples)
+                ]
+                if len(kept) < len(every):
+                    em.emit("pruned", {"position": list(pos), "count": len(every) - len(kept), "reason": "component"})
+                cand_lists.append(kept)
+            # [ponytail: cap children per step at max_nodes instead of enumerating huge products]
+            for child in itertools.islice(fill_selected(partial, positions, cand_lists), budget.max_nodes):
                 if child in seen or any(
                     h.nonterminal not in productive
                     for h in (subterm(child, q) for q in holes(child))
@@ -187,14 +207,9 @@ def search(
                 ):
                     continue
                 seen.add(child)
-                if not noprune and not analyzer.compatible(
-                    result, partial, pos, c, problem.examples
-                ):
-                    em.emit("pruned", {"program": pretty(child), "reason": "component"})
-                    continue
                 heapq.heappush(queue, (size(child), counter, child))
                 counter += 1
-            em.emit("hole_filled", {"position": list(pos), "noprune": noprune})
+            em.emit("hole_filled", {"positions": [list(p) for p in positions], "noprune": noprune})
     except UnsupportedOperator:
         status = "unsupported"
 
