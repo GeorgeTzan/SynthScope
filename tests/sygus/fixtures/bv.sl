@@ -1,0 +1,6 @@
+(set-logic BV)
+(synth-fun f ((x (BitVec 4))) (BitVec 4)
+  ((Start (BitVec 4) (x #x1 (bvand Start Start) (bvadd Start Start) (bvnot Start)))))
+(constraint (= (f #b1011) #b1000))
+(constraint (= #b0000 (f #b0111)))
+(check-synth)
