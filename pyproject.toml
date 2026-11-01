@@ -9,8 +9,8 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest", "hypothesis", "z3-solver", "ruff", "mypy"]
-api = ["fastapi", "uvicorn[standard]", "websockets"]
+dev = ["pytest", "hypothesis", "z3-solver", "ruff", "mypy", "fastapi", "uvicorn", "websockets", "httpx"]
+api = ["fastapi", "uvicorn", "websockets", "httpx"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -18,6 +18,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
+pythonpath = ["."]
 
 [tool.mypy]
 strict = true

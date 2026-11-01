@@ -121,15 +121,13 @@ def environment() -> dict[str, str]:
     }
 
 
-def _work(problem: Problem, config: RunConfig, pre: Callable[[], None] | None) -> dict[str, Any]:
-    if pre is not None:
-        pre()
+def build_search(problem: Problem, config: RunConfig) -> tuple[_CountingAnalyzer, _CountingPolicy]:
+    """Analyzer and hole policy for a problem; shared by the CLI runner and the API worker."""
     bv = problem.domain == "bv"
     assert not bv or problem.width is not None
     base: Analyzer = (
         DomainAnalyzer(BitvectorDomain(problem.width or 1)) if bv else DomainAnalyzer(StringDomain())
     )
-    analyzer = _CountingAnalyzer(base)
     meta: Any = BitvectorMeta() if bv else StringMeta()
     inner: HolePolicy
     if config.policy == "hope":
@@ -138,7 +136,13 @@ def _work(problem: Problem, config: RunConfig, pre: Callable[[], None] | None) -
         inner = MetaOffPolicy(config.seed)
     else:
         inner = LeftmostPolicy()
-    policy = _CountingPolicy(inner)
+    return _CountingAnalyzer(base), _CountingPolicy(inner)
+
+
+def _work(problem: Problem, config: RunConfig, pre: Callable[[], None] | None) -> dict[str, Any]:
+    if pre is not None:
+        pre()
+    analyzer, policy = build_search(problem, config)
     r = search(problem, analyzer, policy, Budget(config.max_nodes, config.timeout_s))
     status: Status = r.status
     validated = False

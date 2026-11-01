@@ -32,3 +32,22 @@ class Emitter:
             return
         self._sink(Event(self.run_id, self._seq, kind, payload or {}))
         self._seq += 1
+
+
+SCHEMA_VERSION = 1
+
+
+def to_json(event: Event) -> str:
+    """Wire format shared by the API and the dashboard."""
+    import json
+
+    return json.dumps(
+        {
+            "schema_version": SCHEMA_VERSION,
+            "run_id": event.run_id,
+            "seq": event.seq,
+            "kind": event.kind,
+            "payload": event.payload,
+        },
+        separators=(",", ":"),
+    )
