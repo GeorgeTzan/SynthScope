@@ -1,0 +1,22 @@
+domain,operator,arity,concrete_semantics,forward_underlying,backward_underlying,forward_meta,backward_meta,source
+bv,bvneg,1,SMT-LIB 2.0,Simba p.13 (bitwise via bvnot+1; unsigned interval),MISSING,Paper Fig1,MISSING,Simba §4.2 / Paper Fig1
+bv,bvnot,1,SMT-LIB 2.0,MISSING (bitwise flip),MISSING,Paper Fig1,MISSING,Paper Fig1
+bv,bvand,2,SMT-LIB 2.0,MISSING (bitwise),Simba p.14 (bitwise first operand),Paper Fig1,Paper Fig2,Simba/Paper
+bv,bvor,2,SMT-LIB 2.0,MISSING,"Simba p.14 (""similar"")",Paper Fig1,"Paper Fig2 (""similar"")",Simba/Paper
+bv,bvxor,2,SMT-LIB 2.0,MISSING,"Simba p.14 (""similar"")",Paper Fig1,Paper Fig2,Simba/Paper
+bv,bvadd,2,SMT-LIB 2.0,Simba p.13 (ripple-carry bitwise; interval with Wrap),MISSING,Paper Fig1,Paper Fig2,Simba/Paper
+bv,bvsub,2,SMT-LIB 2.0,Simba p.13 ("similarly defined"),MISSING,Paper Fig1,Paper Fig2,Simba/Paper
+bv,bvmul,2,SMT-LIB 2.0,Simba p.13 (bitwise trailing zeros; interval similar),Simba p.14-15 (InferMulOp),Paper Fig1,MISSING,Simba/Paper
+bv,bvudiv,2,SMT-LIB 2.0,"Simba p.13 (""standardly defined"")",MISSING,MISSING (Fig1 lists bvsdiv only),MISSING,Simba
+bv,bvsdiv,2,SMT-LIB 2.0,Simba p.13 (four-case split),MISSING,Paper Fig1,MISSING,Simba/Paper
+bv,bvurem,2,SMT-LIB 2.0,MISSING,Simba p.14 (unsigned interval operand 1),Paper Fig1,MISSING,Simba/Paper
+bv,bvshl,2,SMT-LIB 2.0,"Simba p.13 (""similarly defined"")",Simba p.14 (bitwise operand 1),Paper Fig1,MISSING,Simba/Paper
+bv,bvlshr,2,SMT-LIB 2.0,"Simba p.13 (""similarly defined"")",MISSING,Paper Fig1,MISSING,Simba/Paper
+bv,bvashr,2,SMT-LIB 2.0,Simba p.13 (join over shift amounts),MISSING,MISSING (not in Fig1),MISSING,Simba
+str,str.++ (ConCat),2-3,SMT-LIB 2.0,Paper Fig3 (prefix); suffix MISSING,Paper Fig4 (prefix); suffix MISSING,Paper Fig5 (prefix),Paper Fig6 (prefix),Paper p.20-21
+str,str.at (CharAt),2,SMT-LIB 2.0,Paper Fig3 (prefix); suffix MISSING,Paper Fig4 (prefix); suffix MISSING,Paper Fig5,Paper Fig6,Paper p.20-21
+str,StrToInt,1,SMT-LIB 2.0,Paper Fig3 (prefix); suffix MISSING,Paper Fig4 (prefix 1); suffix MISSING,Paper Fig5,Paper Fig6,Paper p.20-21
+str,str.substr,3,SMT-LIB 2.0,MISSING,MISSING,MISSING,MISSING,none
+str,str.indexof,3,SMT-LIB 2.0,MISSING,MISSING,MISSING,MISSING,none
+str,str.len,1,SMT-LIB 2.0,MISSING,MISSING,MISSING,MISSING,none
+str,int.to.str,1,SMT-LIB 2.0,MISSING,MISSING,MISSING,MISSING,none

@@ -1,0 +1,1497 @@
+                                         Inductive Program Synthesis via Iterative
+                                         Forward-Backward Abstract Interpretation
+                                         YONGHO YOON, Seoul National University, Korea
+                                         WOOSUK LEE∗ , Hanyang University, Korea
+arXiv:2304.10768v1 [cs.PL] 21 Apr 2023
+
+
+
+
+                                         KWANGKEUN YI, Seoul National University, Korea
+                                         A key challenge in example-based program synthesis is the gigantic search space of programs. To address this
+                                         challenge, various work proposed to use abstract interpretation to prune the search space. However, most of
+                                         existing approaches have focused only on forward abstract interpretation, and thus cannot fully exploit the
+                                         power of abstract interpretation. In this paper, we propose a novel approach to inductive program synthesis
+                                         via iterative forward-backward abstract interpretation. The forward abstract interpretation computes possible
+                                         outputs of a program given inputs, while the backward abstract interpretation computes possible inputs of a
+                                         program given outputs. By iteratively performing the two abstract interpretations in an alternating fashion,
+                                         we can effectively determine if any completion of each partial program as a candidate can satisfy the input-
+                                         output examples. We apply our approach to a standard formulation, syntax-guided synthesis (SyGuS), thereby
+                                         supporting a wide range of inductive synthesis tasks. We have implemented our approach and evaluated it
+                                         on a set of benchmarks from the prior work. The experimental results show that our approach significantly
+                                         outperforms the state-of-the-art approaches thanks to the sophisticated abstract interpretation techniques.
+                                         CCS Concepts: • Software and its engineering → Programming by example; Automatic programming;
+                                         • Theory of computation → Abstraction; Program analysis.
+                                         Additional Key Words and Phrases: Program Synthesis, Programming by Example, Abstract Interpretation
+                                         ACM Reference Format:
+                                         Yongho Yoon, Woosuk Lee, and Kwangkeun Yi. 2023. Inductive Program Synthesis via Iterative Forward-
+                                         Backward Abstract Interpretation. Proc. ACM Program. Lang. 7, PLDI, Article 174 (June 2023), 25 pages.
+                                         https://doi.org/10.1145/3591288
+
+                                         1   PROBLEM AND OUR APPROACH
+                                         Inductive program synthesis aims to synthesize a program that satisfies a given set of input-output
+                                         examples. The popular top-down search strategy is to enumerate partial programs with missing
+                                         parts and then complete them to a full program.
+                                           Though such a strategy is effective for synthesizing small programs, it hardly scales to large
+                                         programs without being able to rapidly reject spurious candidates due to the exponential size of
+                                         the search space.
+                                           Therefore, various techniques have been proposed to prune the search space [Feng et al. 2017;
+                                         Gulwani 2011; Lee 2021; Polikarpova et al. 2016; Wang et al. 2017a]. In particular, abstract inter-
+                                                                                                                                                                        174
+                                         pretation [Cousot 2021; Rival and Yi 2020] has been widely used for pruning the search space
+                                         ∗ Corresponding author
+
+
+                                         Authors’ addresses: Yongho Yoon, yhyoon@ropas.snu.ac.kr, Seoul National University, Dept. of Computer Science &
+                                         Engineering, Korea; Woosuk Lee, woosuk@hanyang.ac.kr, Hanyang University, Dept. of Computer Science & Engineering,
+                                         Korea; Kwangkeun Yi, kwang@ropas.snu.ac.kr, Seoul National University, Dept. of Computer Science & Engineering, Korea.
+
+                                         Permission to make digital or hard copies of part or all of this work for personal or classroom use is granted without fee
+                                         provided that copies are not made or distributed for profit or commercial advantage and that copies bear this notice and
+                                         the full citation on the first page. Copyrights for third-party components of this work must be honored. For all other uses,
+                                         contact the owner/author(s).
+                                         © 2023 Copyright held by the owner/author(s).
+                                         2475-1421/2023/6-ART174
+                                         https://doi.org/10.1145/3591288
+
+
+                                                                             Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+174:2                                                                     Yongho Yoon, Woosuk Lee, and Kwangkeun Yi
+
+
+
+
+                           Fig. 1. High-level architecture of our synthesis algorithm.
+
+of inductive program synthesis [Feng et al. 2017; Singh and Solar-Lezama 2011; So and Oh 2017;
+Wang et al. 2017a,b]. There are two kinds of abstract interpretation: forward abstract interpretation
+that simulates program executions and backward abstract interpretation that simulates reverse
+executions.
+   Most of the previous methods are solely based on forward abstract interpretation. They sym-
+bolically execute each partial program using their abstract semantics and compute a sound over-
+approximation of all possible outputs of programs derivable from the partial program. If the
+over-approximated output does not subsume the desired output, the program can be safely dis-
+carded.
+   However, forward abstract interpretation alone is not sufficient because it just tells us the
+feasibility of a partial program, but not about how to complete it. Backward abstract interpretation,
+on the other hand, can be used to derive necessary preconditions for the missing parts of a partial
+program.
+   In this paper, we propose a new abstract interpretation-based pruning method for inductive
+program synthesis that uses both forward and backward reasoning in an iterative manner. For
+each partial program with missing expressions, a forward analysis computes (over-approximated)
+invariants over the program’s final outputs and the results of intermediary operations from the
+given input examples. Based on the result of the forward analysis and the desired output examples,
+a backward analysis computes necessary preconditions that must be satisfied by the missing expres-
+sions in order for the program to produce the desired output. These two analyses are synergistically
+combined in a way that the result of one analysis refines the result of the other, and are iterated
+until convergence. If any of the necessary preconditions cannot be satisfied, the partial program is
+discarded because it cannot produce the desired output.
+   Fig. 1 depicts the overall architecture of our synthesis algorithm, inspired by a recently proposed
+synthesis strategy [Lee 2021]. The algorithm takes synthesis specification comprising input-output
+examples, initial partial programs with missing parts as input. Additionally, it requires an abstract
+domain designed by domain experts that characterizes the abstract semantics of the target language.
+Our algorithm consists of three key modules, namely Bottom-up enumerator, Necessary precondition
+generator, and Composer:
+    • Bottom-up enumerator: Given input-output examples and a number 𝑛 which is initially 1,
+      the bottom-up enumerator generates components. The components are expressions (of size
+      ≤ 𝑛) that are to be used to complete the missing parts of partial programs. The bottom-up
+      enumerator exhaustively generates components of the size bound modulo observational
+      equivalence.
+    • Necessary precondition generator: Given a partial program with missing parts, the nec-
+      essary precondition generator computes necessary preconditions that must be satisfied by
+      the missing expressions in order for the program to satisfy the specification. To do so, it
+
+Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+                                                                                                            174:3
+
+
+     iteratively performs a forward and a backward abstract interpretations. The resulting nec-
+     essary precondition maps each missing expression to abstract values, which represent an
+     over-approximation of the possible values that the missing expression is allowed to generate
+     in order for the program to satisfy the specification.
+   • Composer: Given a partial program annotated with necessary preconditions and components,
+     the composer selects which hole to fill with which component and generates a new partial
+     program. When putting a component in a missing part, the composer checks if the necessary
+     precondition of the missing part is satisfied by the component. If no component satisfies
+     any of the necessary preconditions, the partial program is discarded. If a solution cannot be
+     found until all the combinations of components and missing parts are tried, the current set
+     of components is determined to be insufficient. In this case, the bottom-up enumerator is
+     invoked to add larger components (by increasing 𝑛), and the process is repeated.
+Our algorithm is guaranteed to find a solution if it exists because the Bottom-up enumerator will
+eventually generate components to complete the synthesis that satisfies the input-output examples.
+   We have applied our approach to the SyGuS [Alur et al. 2013] specification language. SyGuS is a
+standard formation that has established various synthesis benchmarks through annual competi-
+tions [Past SyGuS Competition 2020]. SyGuS employs a formal grammar to describe the space of
+possible programs. Such a grammar is expressible in some SMT theory. We devise highly precise
+abstract domains specialized for the operators in theories of bitvectors and SAT. By targetting the
+standard formulation, our synthesis algorithm is applicable for a broad class of SyGuS problems
+with arbitrary grammars in those theories.
+   We implemented our algorithm in a tool called Simba. We evaluated Simba on a set of 5 bench-
+marks from the prior work on various applications: 500 benchmarks from program deobfuscation
+[David et al. 2020], 369 benchmarks from program optimization [Lee et al. 2020], and 1006 bench-
+marks from the SyGuS competition (synthesizing side-channel resistant circuits and bit-twiddling
+tricks) [Past SyGuS Competition 2020]. Our evaluation results show that Simba is more scalable
+than the state-of-the-art tools for inductive SyGuS problems Duet [Lee 2021] and Probe [Barke
+et al. 2020]. For example, for the 544 non-conditional bitvector-manipulation problems, Simba is
+able to solve 519 problems in less than 34.8 seconds on average per problem, compared to only 456
+and 409 by Duet and Probe using 165.3 and 63.7 seconds on average, respectively. Simba provides
+significant speedup over the state-of-the-art tools.
+   We summarize the main contributions of our work:
+   • A novel and general synthesis algorithm that prunes the search space effectively by using
+     both forward and backward abstract interpretation: Unlike existing synthesis algorithms, our
+     algorithm uses both forward and backward reasoning thus fully exploit the power of abstract
+     interpretation to prune the search space.
+   • A highly precise abstract domain for bitvectors and SAT: We devise precise forward and
+     backward abstract transfer functions for bitvector and boolean operators. The resulting
+     abstract domains are highly precise and can be used for inductive SyGuS problems with
+     arbitrary grammars in the theories of bitvectors and SAT.
+   • Implementation and evaluation of our algorithm: We implemented our algorithm in a tool
+     called Simba and evaluated it on a set of 5 benchmarks from a variety of applications.
+     The results show significant performance gains over the existing state-of-the-art synthesis
+     techniques.
+
+Limitations. Our method requires a highly precise abstract domain for the target application. In
+this paper, we have shown that our algorithm is effective for synthesizing bit-vector and Boolean
+
+                             Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+174:4                                                                     Yongho Yoon, Woosuk Lee, and Kwangkeun Yi
+
+
+expressions thanks to our highly precise abstract domains. However, whether our algorithm is
+effective for other applications (e.g., synthesizing programs with loops, or synthesizing string-
+manipulating programs) remains an open question. We discuss possible directions for future work
+in Section 7.
+
+2   OVERVIEW
+We illustrate our method on the problem of synthesizing a bit-manipulating program. The desired
+program is a function 𝑓 that takes as input a bit-vector of fixed-width 4 denoted 𝑥 and turns off all
+bits left to the rightmost 0-bit in 𝑥. Let us represent bit-vectors as binary numbers. For example,
+given a bit-vector 10112 , the function is supposed to return 00112 .
+   This problem is represented in SyGuS language, which formulates a synthesis problem as a
+combination of a syntactic specification and a semantic specification. The syntactic specification
+for 𝑓 is the following grammar:
+             𝑆    → 𝑥 | 00012                               input bit-vector and bit-vector literals
+                  | 𝑆 ∧𝑆 | 𝑆 ∨𝑆 | 𝑆 ⊕𝑆                            bitwise logical binary operators
+                  | 𝑆 + 𝑆 | 𝑆 × 𝑆 | 𝑆/𝑆 | 𝑆 >> 𝑆              bitwise arithmetic binary operators
+where 𝑆 is the start non-terminal symbol, and the operators are the ones supported in the theory of
+bit-vectors (⊕ denotes the bitwise exclusive-or operator and >> denotes the arithmetic right shift
+operator where the leftmost bits are filled with the most significant bit of the left operand). The
+semantic specification for 𝑓 follows the programming-by-example (PBE) paradigm and comprises
+input-output examples. For ease of exposition, we assume only one input-output example is given:
+𝑓 (10112 ) = 00112 . A solution to the synthesis problem is 𝑓 (𝑥) = ((𝑥 + 00012 ) ⊕ 𝑥) >> 00012 .
+
+Abstract Domain. In our abstract interpretations we use the following abstract domain of bit-
+vectors to represent the abstract semantics of the program. The bitwise domain is a set of elements
+each of which is a sequence of abstract bits of length 4. Each abstract bit has a value from the set
+{0, 1, ⊥, ⊤} where ⊤ represents the unknown value and ⊥ represents no value. The domain has
+abstract operators for the bitwise logical and arithmetic operators. The abstract operators simulate
+the behaviors of the concrete operators in the abstract domain. From now on, we denote each
+abstract operator in this domain by the corresponding concrete operator with a superscript #. For
+example, 1⊤10 ∧# 00⊤⊤ = 00⊤0.
+
+Generation of Initial Partial Programs. We first generate a fixed set 𝑄 of partial programs
+which have one or more non-terminal symbols as placeholders. Starting from the start symbol 𝑆,
+we exhaustively generate all possible partial programs by applying the production rules of the
+grammar to non-terminal symbols up to a certain depth. In this example, for illustration purpose,
+we assume that the 𝑄 set has three partial programs:
+                              𝑄 = {(𝑆 ⊕ 𝑥) >> 00012, (𝑆/𝑥) >> 00012, 𝑆 1 × 𝑆 2 }
+
+Component Generation. The component generator then generates a set 𝐶 of components by
+the bottom-up enumerative search, which maintains a set of complete programs and progressively
+generates new programs by composing existing ones. The set of components consists of expressions
+of size ≤ 𝑛 where 𝑛 is the size upperbound which is initially 1. This upperbound is increased by
+1 whenever the current set of components is insufficient to synthesize a solution. The number
+of components is potentially exponential to 𝑛, but we can reduce the number of components by
+exploiting observational equivalence of expressions. For example, if 𝑥 is in the component set,
+
+Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+                                                                                                              174:5
+
+
+𝑥 ∨ 00002 is not added to the set because they are observationally equivalent. Because initially
+𝑛 = 1, the component set is
+                                         𝐶 = {𝑥, 00012 }.
+These components are used to complete the missing parts (i.e., nonterminals) of the partial programs
+in 𝑄 in the following composition phase.
+
+Derivation of Necessary Preconditions. Before we start the composition phase, we derive a
+necessary precondition over each subexpression (including nonterminals) of the partial programs
+in 𝑄 using forward and backward analyses using the abstract domain. A necessary precondition
+is represented as an element in the bitwise abstract domain. The followings are the derivation of
+necessary preconditions for the partial programs in 𝑄.
+     • 𝑆 1 × 𝑆 2 (necessary preconditions: 𝑆 1 ↦→ ⊤⊤⊤⊤, 𝑆 2 ↦→ ⊤⊤⊤⊤): We first perform a forward
+       analysis on the partial program to obtain invariants over the program’s final output and the
+       results of intermediary operations. The nonterminals can be replaced by any expressions, so
+       the abstract output of both nonterminals is ⊤⊤⊤⊤. Thus, the abstract output of the entire
+       program is ⊤⊤⊤⊤. Now we check the feasiblity of the partial program by checking whether
+       the abstract output of the partial program is consistent with the desired output example. This
+       check can be simply done by applying the meet operator (⊓) to the abstract output of the
+       partial program and the abstraction of the desired output. Because the result does not contain
+       ⊥ (⊤⊤⊤⊤ ⊓ 0011 = 0011), the partial program is feasible. Now the backward analysis can
+       be performed to obtain necessary preconditions over the non-terminals. From the desired
+       output 00112 , considering possible overflows in the multiplication, 𝑆 1 and 𝑆 2 can be any value.
+       Therefore, the necessary precondition of 𝑆 1 (and 𝑆 2 ) is ⊤⊤⊤⊤.
+     • (𝑆 ⊕ 𝑥) >> 00012 (necessary precondition: 𝑆 ↦→ 110⊤): By the forward analysis, the abstract
+       output of (𝑆 ⊕ 𝑥) is ⊤⊤⊤⊤, and the abstract output of (𝑆 ⊕ 𝑥) >> 00012 is ⊤⊤⊤⊤ >>#
+       0001 = ⊤⊤⊤⊤. Now we check the feasiblity of the partial program. Becaues the result is not
+       inconsistent with the desired output (⊤⊤⊤⊤ ⊓ 0011 = 0011), the partial program is feasible.
+       Now the backward analysis is performed. From the desired output 00112 , we can derive the
+       necessary precondition over (𝑆 ⊕ 𝑥) as 011⊤ because 011⊤ >># 0001 = 0011. The necessary
+       precondition over 𝑆 is 110⊤ because, for the input 10112 for 𝑥, 110⊤ ⊕ # 1011 = 011⊤.
+     • (𝑆/𝑥) >> 00012 (the program is infeasible): By the forward analysis, the abstract output
+       of (𝑆/𝑥) is 000⊤. That is because from the fact that the maximum possible value of 𝑆 is
+       11112 (which is 15 in decimal) and the input 𝑥’s value is 10112 (which is 11 in decimal), the
+       possible values of (𝑆/𝑥) are 0 and 1, which is represented as 000⊤ in the bitwise domain. The
+       abstract output of (𝑆/𝑥) >> 00012 is 0000 because 000⊤ >># 0001 = 0000. Now we check the
+       feasiblity of the partial program. Because the result is inconsistent with the desired output
+       (0000 ⊓ 0011 = 00⊥⊥), the partial program is infeasible.
+As shown in the above, the partial program (𝑆/𝑥) >> 00012 is determined to be infeasible. Only
+the other two partial programs will be considered in the composition phase.
+
+Composition Process. Given the partial programs in 𝑄 with necessary preconditions and the
+set 𝐶 of components, the composer generates new (partial) programs by replacing non-terminal
+symbols in the partial programs with components.
+  The composer first chooses (𝑆 ⊕𝑥) >> 00012 . It then searches for a component 𝑐 in 𝐶 = {𝑥, 00012 }
+such that the necessary precondition over 𝑆 is subsumed by the abstract output of 𝑐. There is no such
+component because the necessary precondition 110⊤ is not subsumed by neither of the abstract
+outputs of 𝑥 (1011) and 00012 (0001). Therefore, the composer discards the partial program.
+
+                               Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+174:6                                                                     Yongho Yoon, Woosuk Lee, and Kwangkeun Yi
+
+
+   The next partial program is 𝑆 1 × 𝑆 2 . Suppose the composer replaces 𝑆 1 with 𝑥, obtaining a new
+partial program 𝑥 × 𝑆 2 . Whenever a new partial program is generated, the necessary precondition
+generator is invoked to derive necessary preconditions over the non-terminals. Because the multi-
+plication operation is modulo 24 , computing the necessary precondition over 𝑆 2 amounts to solving
+the following equation:
+                                           10112 × 𝑦 = 00112        mod 16
+where 𝑦 represents the unknown value of 𝑆 2 . Using the extended Euclidean algorithm, we can find
+the solution to the equation as 𝑦 = 10012 . Thus, the necessary precondition over 𝑆 2 is 1001. Unfor-
+tunately, there is no component in 𝐶 whose abstract output subsumes the necessary precondition.
+Therefore, the composer discards the partial program.
+   Because the composer exhausts all the partial programs in 𝑄 without finding a solution, it invokes
+the component generator to generate more components.
+   Next, suppose the component generator generates components of size ≤ 3 resulting in 𝐶 =
+{𝑥, 00012, 𝑥 + 00012, · · · }.
+   The composer revisits the partial program (𝑆 1 ⊕ 𝑥) >> 00012 . Recall the necessary precondition
+over 𝑆 1 is 110⊤. Now the component 𝑥 + 00012 whose output is 11002 satisfies the necessary
+precondition. Therefore, the composer replaces 𝑆 1 with 𝑥 + 00012 to obtain a new program ((𝑥 +
+00012 ) ⊕ 𝑥) >> 00012 . After evaluation of the program, the composer finds that the program is
+correct and returns it as a solution.
+   The rest of the paper is organized as follows. Section 3 introduces preliminary concepts and
+describes our overall synthesis algorithm. Section 4 presents our abstract domains specialized for
+the theories of bitvectors and Boolean logic. Section 5 presents our experimental results. Section 6
+discusses related work. Section 7 discusses future work. Section 8 concludes.
+
+3     OVERALL SYNTHESIS ALGORITHM
+In this section, we formulate our method. We first introduce preliminary concepts including
+terms, regular tree grammars, and syntax-guided synthesis over a finite set of examples. We then
+present our generic synthesis algorithm, which is based on iterative forward-backward abstract
+interpretation.
+
+3.1     Preliminaries
+Term A signature Σ is a set of function symbols, where each 𝑓 ∈ Σ is associated with a non-
+negative interger 𝑛, the arity of 𝑓 (denoted 𝑎𝑟𝑖𝑡𝑦 (𝑓 )). For 𝑛 ≥ 0, we denote the set of all n-ary
+elements Σ by Σ (𝑛) . Function symbols of 0-arity are constants. Let 𝑉 be a set of variables. The
+set 𝑇Σ,𝑉 of all Σ-terms over 𝑉 is inductively defined; 𝑉 ⊆ 𝑇Σ,𝑉 and ∀𝑛 ≥ 0, 𝑓 ∈ Σ (𝑛) . 𝑡 1, · · · , 𝑡𝑛 ∈
+𝑇Σ,𝑉 . 𝑓 (𝑡 1, · · · , 𝑡𝑛 ) ∈ 𝑇Σ,𝑉 . A term can be viewed as a tree.
+
+
+Position The set of positions of term 𝑠 is a set Pos(𝑠) of strings over the alphabet of natural
+numbers, which is inductively defined as follows:
+      • If 𝑠 = 𝑥 ∈ 𝑉 , Pos(𝑠) = {𝜖}.                    Ð
+      • If 𝑠 = 𝑓 (𝑠 1, · · · , 𝑠𝑛 ), then Pos(𝑠) = {𝜖} ∪ 𝑛𝑖=1 {𝑖𝑝 | 𝑝 ∈ Pos(𝑠𝑖 )}.
+The position 𝜖 is called the root position of term 𝑠. For 𝑝 ∈ Pos(𝑠), the subterm of 𝑠 at position 𝑝,
+denoted by 𝑠 |𝑝 , is defined by (i) 𝑠 |𝜖 = 𝑠 and (ii) 𝑓 (𝑠 1, · · · , 𝑠𝑛 ) |𝑖𝑞 = 𝑠𝑖 |𝑞 . For 𝑝 ∈ Pos(𝑠), we denote
+by 𝑠 [𝑝 ← 𝑡] the term that is obtained from 𝑠 by replacing the subterm at position 𝑝 by 𝑡. Formally,
+𝑠 [𝜖 ← 𝑡] = 𝑡 and 𝑓 (𝑠 1, · · · , 𝑠𝑛 ) [𝑖𝑞 ← 𝑡] = 𝑓 (𝑠 1, · · · , 𝑠𝑖 [𝑞 ← 𝑠], · · · , 𝑠𝑛 ).
+
+Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+                                                                                                                   174:7
+
+
+Algorithm 1 The Simba Algorithm
+Require: A SyGuS instance ⟨𝐺, Φ =
+                                          Ð𝑚
+                                             𝑗=1 {𝑖 𝑗 ↦→ 𝑜 𝑗 }⟩ where each 𝑖 𝑗 , 𝑜 𝑗 ∈ 𝐷
+                                                            𝛾
+Require: Abstract domain 𝐷ˆ such that P (𝐷) ←
+                                            −−−
+                                              −−
+                                               −−
+                                                −−
+                                                 −−
+                                                  −−−− 𝐷ˆ
+                                                   −→     𝛼
+Require: An integer 𝑑 for the maximum height of the partial programs
+Ensure: A solution program 𝑃 ∈ 𝐿(𝐺) that satisfies Φ
+ 1: 𝑄 := GenerateSketches(𝐺, 𝑑)
+ 2: 𝑛 := 1
+ 3: C := ∅
+ 4: repeat
+ 5:     𝑄 ′ := 𝑄
+ 6:     C := GenerateComponent(𝐺, C, 𝑛)                                                          ⊲ C : 𝑁 → P (𝐿(𝐺))
+ 7:     while 𝑄 ′ is not empty do
+ 8:          remove 𝑃 from 𝑄 ′
+ 9:          if IsComplete(𝑃) and 𝑃 |= Φ then return 𝑃
+10:          else
+11:               A := Analyze(𝑃, Φ)                                                             ⊲ A : Pos(𝑃) → 𝐷ˆ 𝑚
+12:              if ∃𝑝 ∈ Pos(𝑃). ⊥𝐷ˆ ∈ A (𝑝) then continue
+13:              𝑝𝑜𝑠 := Pick(Holes(𝑃))                                                                  ⊲ 𝑝𝑜𝑠 ∈ Pos(𝑃)
+14:              for 𝑐 ∈ C(𝑃 |𝑝𝑜𝑠 ) s.t. ⟨𝛼 (⟦𝑐⟧ (𝑖 1 )), · · · , 𝛼 (⟦𝑐⟧ (𝑖𝑚 ))⟩ ⊑ A (𝑝𝑜𝑠) do
+15:                  𝑄 ′ := 𝑄 ′ ∪ {𝑃 [𝑝𝑜𝑠 ← 𝑐]}
+16:              end for
+17:          end if
+18:     end while
+19:     𝑛 := 𝑛 + 1
+20: until false
+
+
+
+
+Regular Tree Grammar. A regular tree grammar is a tuple 𝐺 = (𝑁 , Σ, 𝑆, 𝛿) where 𝑁 is a finite
+set of nonterminal symbols (of arity 0), Σ is a signature, 𝑆 ∈ 𝑁 is an initial nonterminal, and 𝛿 is a
+finite set of productions of the form 𝐴0 → 𝜎 (𝑖) (𝐴1, · · · , 𝐴𝑖 ) where each 𝐴 𝑗 ∈ 𝑁 is a nonterminal.
+Given a tree (or a term) 𝑡 ∈ 𝑇Σ,𝑉 , applying a production 𝑟 = 𝐴 → 𝛽 into 𝑡 replaces an occurrence
+of 𝐴 in 𝑡 with the right-hand side 𝛽. A tree 𝑡 ∈ 𝑇Σ,𝑉 is generated by the grammar 𝐺 iff it can be
+obtained by applying a sequence of productions 𝑟 1, · · · , 𝑟𝑛 to the tree of which root node represents
+the initial nonterminal 𝑆. All the trees that can be derived from 𝑆 are called the language of 𝐺 and
+denoted by 𝐿(𝐺).
+
+
+
+
+Inductive Syntax-Guided Synthesis The syntax-guided synthesis problem [Alur et al. 2013]
+is a tuple ⟨𝐺, Φ⟩. The goal is to find a program 𝑃 that satisfies a given specification Φ in a decidable
+theory. Programs must be written in a language 𝐿(𝐺) described by a regular-tree grammar 𝐺.
+In particular,
+           Ð we say a SyGuS instance is inductive1 if the specification is a set of input-output
+pairs Φ = 𝑚  𝑗=1 {𝑖 𝑗 ↦→ 𝑜 𝑗 } where 𝑖 𝑗 and 𝑜 𝑗 are values . Assuming a deterministic semantics ⟦𝑃⟧ is
+assigned to each program 𝑃 in 𝐿(𝐺), the goal is to find a program 𝑃 such that ⟦𝑃⟧ (𝑖) = 𝑜 for all
+𝑖 ↦→ 𝑜 ∈ Φ (denoted 𝑃 |= Φ).
+
+                                    Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+174:8                                                                     Yongho Yoon, Woosuk Lee, and Kwangkeun Yi
+
+
+3.2     Overall Algorithm
+Now we describe our algorithm of bidirectional search-based inductive synthesis accelerated by
+using forward/backward abstract interpretation. Algo. 1 shows the high-level structure of our
+synthesis algorithm, which takes
+     • Inductive SyGuS instance with a regular tree grammar 𝐺 and 𝑚 input-output examples Φ
+     • Abstract domain 𝐷ˆ that abstracts the set 𝐷 of values of all terms in 𝐿(𝐺) and a Galois
+       connection 𝛼 : P (𝐷) → 𝐷ˆ and 𝛾 : 𝐷ˆ → P (𝐷)
+     • Integer 𝑑 that specifies the maximum height of the sketches (partial programs with nontermi-
+       nals) to be explored
+The sketches of height ≤ 𝑑 are enumerated top-down according to the grammar 𝐺, and inserted
+into the priority queue 𝑄 (line 1). Then, the size upperbound 𝑛 for components is initially set to be 1
+(line 2). The integer 𝑛 will be increased by 1 at each iteration (line 19) until a solution is found. The
+component pool C (which is initially the empty set) includes all the components of size ≤ 𝑛 that are
+generated in a bottom-up fashion. The main loop (lines 4–20) is repeated until a solution is found.
+The priority queue 𝑄 ′ which will be used in a current iteration is initialized by inserting the sketches
+in 𝑄 into 𝑄 ′ (line 5). The GenerateComponent procedure incrementally builds expressions of size
+≤ 𝑛 by composing the previously generated expressions (line 6). By exploiting the observational
+equivalence, C does not include multiple components which are semantically equivalent to each
+other with respect to the specification. In the while loop (lines 7–18), the algorithm explores the
+search space determined by the current component pool C and the set of sketches. If a candidate 𝑃
+dequeued from 𝑄 ′ is a complete program and correct with respect to the specification, 𝑃 is returned
+as a solution (line 9). Otherwise, another candidate in 𝑄 ′ is explored. If a candidate 𝑃 is a partial
+program, we analyze 𝑃 to infer a necessary precondition for each subexpression in 𝑃. The Analyze
+procedure computes a map A that maps each subexpression in 𝑃 to a tuple of 𝑚 abstract values in 𝐷ˆ
+(line 11). The 𝑗-th abstract value represents a necessary precondition to be satisfied any expression
+that is substituted for the nonterminal in order to satisfy the 𝑗-th input-output example 𝑖 𝑗 ↦→ 𝑜 𝑗 . If
+𝑃 has a position having ⊥𝐷ˆ representing no expression can be put in that position, 𝑃 is determined
+to be infeasible and discarded (line 12). Otherwise, a nonterminal in 𝑃 is chosen (line 13). For each
+component 𝑐 that can be substituted for the nonterminal and satisfies the necessary precondition
+(line 14), we replace the nonterminal with 𝑐 and enqueue the resulting program into 𝑄 ′ (line 15). If
+no solution is found with the current component pool C, the size 𝑛 is increased by 1 (line 19) and
+the main loop is repeated.
+   Our algorithm has the following properties. First, our algorithm is sound and complete in the
+following sense.
+  Theorem 3.1. Algo. 1 is sound and complete in the sense that if a solution to a given inductive
+SyGuS instance exists, Algo. 1 eventually finds the solution.
+   Second, it can determine the unrealizability [Hu et al. 2020] of a given inductive SyGuS instance
+if every sketch in the queue 𝑄 ′ has a position having ⊥𝐷ˆ and discarded at line 12 in the main loop.
+That is, no sketch can be completed to a feasible program. Lastly, it can be solely used for top-down
+synthesis rather than bidirectional synthesis, which makes it applicable to existing top-down
+synthesis algorithms. To do so, instead of using a fixed set of sketches, at each iteration of the main
+loop (lines 4–20), we can add larger sketches to the queue 𝑄 ′ by increasing the maximum height 𝑑
+of the sketches to be explored while keeping the size upperbound 𝑛 to be 1 until a solution is found.
+1 SyGuS instances with a logical formula, which have a unique output that satisfies the formula for a given input, can be
+
+transformed into ones with input-output examples by counterexample-guided inductive synthesis (CEGIS) [Solar-Lezama
+et al. 2006].
+
+
+Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+                                                                                                                     174:9
+
+
+3.3   The Iterative Forward-Backward Analysis
+We describe the Analyze procedure in Algo. 1 in detail. It is known that by alternating forward
+and backward analyses, we can compute an overapproximation of the set of states that are both
+reachable from the program entry and able to reach a desired state at the program exit [Cousot and
+Cousot 1992]. In our setting where a program is a tree, execution of a program starts at the leaves
+of the program tree (constants or the input variable) and proceeds to the root. Therefore, for each
+node of the program tree, a forward analysis computes an over-approximation of the set of values
+that may be computed from a subtree rooted at the node in a bottom-up manner. A backward
+analysis computes an over-approximation of the set of values that may be used to generate output
+desired by its parent in a top-down fashion.
+    Given a candidate 𝑃 and 𝑛 input-output examples Φ, the Analyze procedure performs the
+iterative forward-backward analysis for each input-output example and combines the results to
+obtain a map A. The analysis result A maps each position in 𝑃 to a tuple of abstract values
+𝑑ˆ1, · · · , 𝑑ˆ𝑚 .
+    The forward abstract semantics with respect to an input-output example 𝑖 ↦→ 𝑜 is characterized
+by the least fixpoint of the following function F⟨𝑖,𝑜 ⟩ : (Pos(𝑃) → 𝐷)
+                                                                    ˆ → (Pos(𝑃) → 𝐷):ˆ
+                                                         
+                                                         
+                                                          𝛼 (𝑖)             (𝑃 |𝑝 ∈ 𝑉 )
+                                                          ⊤
+                                                         
+                                                                            (𝑃 |𝑝 ∈ 𝑁 )
+ F⟨𝑖,𝑜 ⟩ = 𝜆𝑋 . IF𝑖 ⊔ 𝐹 # (𝑋 )       where     IF = {𝑝 →
+                                                𝑖      ↦                                          | 𝑝 ∈ Pos(𝑃)}.
+                                                         
+                                                          𝛼 (𝑃 |𝑝 )         (𝑃 |𝑝 is a constant)
+                                                          ⊥
+                                                         
+                                                                             (otherwise)
+                                                         
+The initial state IF𝑖 maps each nonterminal in 𝑁 to ⊤ since a nonterminal represents a hole that can
+be filled by any expression. Each variable is mapped to the abstraction of the input example (i.e.,
+𝛼 (𝑖)), and each constant is mapped to the abstraction of the constant itself. The forward abstract
+function 𝐹 # is defined as follows:
+                         → −#
+         𝐹 (𝑋 ) = {𝑝 ↦→ 𝑓 (𝑋 (𝑝1), · · · , 𝑋 (𝑝𝑘)) (𝑃 |𝑝 = 𝑓 (· · · ), 𝑎𝑟𝑖𝑡𝑦 (𝑓 ) = 𝑘) | 𝑝 ∈ Pos(𝑃)}
+          #
+                                 ⊥                            (otherwise)
+       →
+       −
+where 𝑓 # denotes the forward abstract operator of an operator 𝑓 . It takes abstract values of
+arguments and returns a resulting abstract value.
+  The backward abstract semantics with respect to an input-output example 𝑖 ↦→ 𝑜 is characterized
+by the greatest fixpoint of the following function B ⟨𝑖,𝑜 ⟩ : (Pos(𝑃) → 𝐷)ˆ → (Pos(𝑃) → 𝐷):
+                                                                                          ˆ
+                                                         
+                                                            𝛼 (𝑜) (𝑝 = 𝜖)
+      B ⟨𝑖,𝑜 ⟩ = 𝜆𝑋 . IB𝑜 ⊓ 𝐵 # (𝑋 ) where IB𝑜 = {𝑝 ↦→                          | 𝑝 ∈ Pos(𝑃)}.
+                                                            ⊤       (otherwise)
+The final state IB𝑜 maps the root position to the abstraction of the output example (i.e., 𝛼 (𝑜)) and
+every other position to ⊤. The backward abstract function 𝐵 # is defined as follows:
+                 ← −#    ′       ′                ′          ′
+𝐵 # (𝑋 ) = {𝑝 ↦→ 𝑓 𝑖 (𝑋 (𝑝 ), 𝑋 (𝑝 1), · · · , 𝑋 (𝑝 𝑘)) (𝑝 = 𝑝 𝑖, 𝑃 |𝑝 = 𝑓 (· · · ), 𝑎𝑟𝑖𝑡𝑦 (𝑓 ) = 𝑘) | 𝑝 ∈ Pos(𝑃)}
+                                                                      ′
+
+                     ⊤                                        (otherwise)
+         ←−
+where 𝑓 𝑖# denotes the backward abstract operator of an operator 𝑓 . It takes an abstract value of the
+result and abstract values of arguments, and returns an abstract value of the 𝑖-th argument, which
+corresponds to the necessary precondition for the 𝑖-th argument to satisfy the input-output example.
+   The intersection of the forward and backward abstract semantics is computed by obtaining the
+limit of the following decreasing chain defined for all 𝑛 ∈ N until the chain converges [Cousot and
+Cousot 1992]: 𝑋¤ ⟨𝑖,𝑜
+                  0
+                      ⟩
+                        = lfp F⟨𝑖,𝑜 ⟩ , 𝑋¤ ⟨𝑖,𝑜
+                                           2𝑛+1 = gfp 𝜆𝑋 . 𝑋¤ 2𝑛 ⊓ B
+                                                ⟩             ⟨𝑖,𝑜 ⟩
+                                                                                      ¤ 2𝑛+2              ¤ 2𝑛+1
+                                                                     ⟨𝑖,𝑜 ⟩ (𝑋 ), and 𝑋 ⟨𝑖,𝑜 ⟩ = lfp 𝜆𝑋 . 𝑋 ⟨𝑖,𝑜 ⟩ ⊓
+F⟨𝑖,𝑜 ⟩ (𝑋 ).
+
+                                      Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+174:10                                                                           Yongho Yoon, Woosuk Lee, and Kwangkeun Yi
+
+
+   The Analyze procedure is defined as follows:
+              𝑚
+              Ø
+Analyze (𝑃,         𝑖 𝑗 ↦→ 𝑜 𝑗 ) = {𝑝 ↦→ ⟨A1 (𝑝), · · · , A𝑚 (𝑝)⟩ | 𝑝 ∈ Pos(𝑃), ∀1 ≤ 𝑗 ≤ 𝑚. A 𝑗 = lim 𝑋¤ 𝑛⟨𝑖 𝑗 ,𝑜 𝑗 ⟩ }
+                                                                                                           𝑛→∞
+              𝑗=1
+
+   Example 3.2. Consider the partial program 𝑃 = (𝑆 ⊕ 𝑥) >> 00012 in the overview example in
+Section 2 where the input example 𝑖 = 10112 and the output example 𝑜 = 00112 . The subterms
+of 𝑃 are (𝑆 ⊕ 𝑥), 00012 , 𝑆, and 𝑥, and their positions are 1, 2, 11, and 12, respectively. Assuming
+that the abstract domain 𝐷ˆ is the bitwise domain, the initial state for the forward analysis IF𝑖 is
+{𝜖 ↦→ ⊥⊥⊥⊥, 1 ↦→ ⊥⊥⊥⊥, 2 ↦→ 0001, 11 ↦→ ⊤⊤⊤⊤, 12 ↦→ 1011}. The initial state for the backward
+analysis IB𝑜 maps the root position 𝜖 to 0011 and every other position to ⊤⊤⊤⊤. The table below
+shows the first three elements of the decreasing chain 𝑋¤ 𝑛⟨𝑖,𝑜 ⟩ :
+
+                                    Position 𝑝   𝑋¤ ⟨𝑖,𝑜
+                                                    0
+                                                         ⟩
+                                                           (𝑝)   𝑋¤ ⟨𝑖,𝑜
+                                                                    1
+                                                                         ⟩
+                                                                           (𝑝)    𝑋¤ ⟨𝑖,𝑜
+                                                                                     2
+                                                                                          ⟩
+                                                                                            (𝑝)
+                                        𝜖          ⊤⊤⊤⊤            0011             0011
+                                        1          ⊤⊤⊤⊤            011⊤             011⊤
+                                        2           0001           0001             0001
+                                        11         ⊤⊤⊤⊤            110⊤             110⊤
+                                        12          1011           1011             1011
+We assume the forward and backward abstract operators in the bitwise domain defined for the
+bitwise XOR operator and the arithmetic right shift operator (described in Section 4) are used.
+Because the chain converges at 𝑋¤ ⟨𝑖,𝑜
+                                  2 , the Analyze procedure returns it as the final result.
+                                       ⟩
+
+
+3.4      Optimizations
+In the implementation, we apply the following optimizations to improve the efficiency of Algo. 1.
+
+
+Concretization to Avoid Unnecessary Scans. In addition to the component pool C : 𝑁 →
+P (𝐿(𝐺)) that memorizes the component expressions derivable from each nonterminal, we also
+maintain an additional map V : 𝑁 → (𝐷 × 𝐷) → P (𝐿(𝐺)) that returns components that
+exhibit a certain input-output behavior. For example, in the overview example in Section 2,
+V(𝑆) (10112, 11002 ) = {𝑥 + 00012 } because 𝑥 + 00012 outputs 11002 when given 10112 as input.
+This map is used to save the time for line 14 only when the analysis result A (𝑝𝑜𝑠) is precise
+enough (i.e., its concretization result is a small set). In such a case, instead of computing the set
+                                                                                      Ñ
+{𝑐 ∈ C(𝑃 |𝑝𝑜𝑠 | ⟨𝛼 (⟦𝑐⟧ (𝑖 1 )), · · · , 𝛼 (⟦𝑐⟧ (𝑖𝑚 ))⟩ ⊑ A (𝑝𝑜𝑠))}, we compute {V(𝑃 |𝑝𝑜𝑠 ) (𝑖 𝑗 , 𝑣 𝑗 ) |
+A (𝑝𝑜𝑠) = ⟨𝑑ˆ1, · · · , 𝑑ˆ𝑚 ⟩, ∀1 ≤ 𝑗 ≤ 𝑚. 𝑣 𝑗 ∈ 𝛾 (𝑑 𝑗 )} to obtain the set of components that are compat-
+ible with the analysis result. This can save the time for line 14 by avoiding scanning the entire
+component pool C.
+
+
+Divide-and-Conquer for Conditional Programs. In the case of synthesis of conditional pro-
+grams, we incorporate the divide-and-conquer enumerative approach [Alur et al. 2017] into our
+algorithm as follows. First, for each input-output example, by using Algo. 1, we synthesize a
+conditional-free program which satisfies that example. Second, we combine these conditional-free
+programs into a single conditional program that works for all examples by using the previous
+decision tree learning algorithm from [Alur et al. 2017]. Conditional predicates are generated by
+bottom-up enumeration.
+
+Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+                                                                                                                   174:11
+
+
+4     ABSTRACT DOMAINS
+In this section, we propose efficient but precise abstract domains that can be used for a wide
+range of inductivey SyGuS problems with background theories of (1) fixed-width bitvectors and (2)
+propositional logic.
+  For a space reason, we only present some noteworthy points of our abstract domains. The full
+details of our abstract domains are available in the supplementary material.
+
+4.1    Notations
+For the theory of bitvectors of fixed-width 𝑤, we follow the standard syntax and semantics of the
+bit-vector operators described in the SMT-LIB v2.0 standard [Barrett et al. 2010]. Unsigned and
+signed bit-vectors are represented as bitstrings of length 𝑤 (i.e., {0, 1} 𝑤 ). The values of unsigned
+bit-vectors range over {0, · · · , 2𝑤 − 1}, and those of signed ones range over {−2𝑤−1, · · · , 2𝑤−1 − 1}
+respectively. We refer to −2𝑤−1 , 2𝑤−1 − 1, 0, and 2𝑤 − 1 as smin, smax, umin, and umax respectively.
+We denote [𝑛] 𝑖 as 𝑖-th bit of the bitstring representation of 𝑛 and [𝑛] 𝑖:𝑗 as a substring of 𝑛 comprising
+𝑖-th bit, 𝑖+1-th bit, · · · , 𝑗-th bit of 𝑛. The concatenation of two strings 𝑛 1 and 𝑛 2 is denoted by
+𝑛 1 · 𝑛 2 , and the length of a string 𝑛 is denoted by |𝑛|. We denote 𝑛[𝑎/𝑏] as the bitstring obtained by
+replacing every occurrence of 𝑏 in 𝑛 with 𝑎. For an interval [𝑙, ℎ], we denote 𝑙𝑏 ( [𝑙, ℎ]) and 𝑢𝑏 ( [𝑙, ℎ])
+as the lower and upper bounds of [𝑙, ℎ] respectively. Lastly, for a bitstring 𝑛, we denote Trail0s(𝑛)
+as the number of trailing zeros in 𝑛.
+
+4.2    Abstract Domain for Fixed-Width Bitvectors
+Abstract Domain. Our abstract domain for fixed-width bitvectors is a reduced product domain.
+Reduced product of abstract domains can be used to achieve precise abstractions by synergistically
+combining the expressiveness power of several abstract domains [Cousot 2021]. Our abstract
+domain comprises the following domains.
+   The bitwise domain ⟨𝐵, ˆ ⊑ ˆ , ⊔ ˆ , ⊓ ˆ ⟩ is a domain that tracks the value of each bit of a bit-vector
+                                 𝐵    𝐵  𝐵
+independently, also used in prior work [Miné 2012; Regehr and Duongsaa 2006]. Each element of
+the bitwise domain 𝐵ˆ is a string of abstract bits of length 𝑤 as already introduced in Section 2. The
+                                                def
+domain is formally defined as follows: 𝐵ˆ = {𝑏 1 · 𝑏 2 · · · 𝑏 𝑤 | ∀1 ≤ 𝑖 ≤ 𝑤 . 𝑏𝑖 ∈ {0, 1, ⊥, ⊤}}. To define
+the galois connection between 𝐵ˆ and P (Z), we define the following function that computes the
+bit-vector representation 𝑝 (𝑥) of an integer 𝑥 using the two’s complement representation [Miné
+2012]:
+                      
+                  def   𝑏 1 · · · 𝑏 𝑤 where ∀1 ≤ 𝑖 ≤ 𝑤 . 𝑏𝑖 = ⌊𝑥/2𝑤−𝑖 ⌋ mod 2          (𝑥 ≥ 0)
+            𝑝 (𝑥) =       ′         ′                       ′
+                          𝑏1 · · · 𝑏𝑤     where ∀1 ≤ 𝑖 ≤ 𝑤 . 𝑏𝑖 = ¬𝑏𝑖 , 𝑏𝑖 = [𝑝 (−𝑥 − 1)]𝑖       (𝑥 < 0)
+                                                                                                            𝛾𝐵ˆ
+Note that the leftmost bit is the most significant bit. The galois connection P (Z) ←
+                                                                                    −−−
+                                                                                      −−
+                                                                                       −−
+                                                                                        −−
+                                                                                         −−−− 𝐵ˆ is
+                                                                                          −→                𝛼 𝐵ˆ
+defined as follows:
+                                                              (
+                  def Ã                                 def       ∅                             (∃𝑖. [𝑏]𝑖 = ⊥)
+        𝛼 𝐵ˆ (𝑍 ) = 𝐵ˆ {𝑝 (𝑥) | 𝑥 ∈ 𝑍 }          𝛾𝐵ˆ (𝑏) =         unsigned        signed
+                                                                  𝛾ˆ        (𝑏) ∪ 𝛾 ˆ     (𝑏)   (otherwise)
+                                                                   𝐵               𝐵
+where the concretization functions for unsigned and signed bit-vectors are defined as follows:
+                          unsigned     def Í𝑤−1 𝑖
+                        𝛾ˆ         (𝑏) = { 𝑖=0 2 𝑚 𝑤−𝑖 | ∀1 ≤ 𝑖 ≤ 𝑤 . 𝑚𝑖 ∈ 𝛾𝐵 ([𝑏]𝑖 )}
+                          𝐵
+                    signed     def            Í 𝑤−2 2𝑖 𝑚
+                   𝛾ˆ      (𝑏) = {−2𝑤−1𝑚 1 + 𝑖=0         𝑤−𝑖 | ∀1 ≤ 𝑖 ≤ 𝑤 . 𝑚𝑖 ∈ 𝛾 𝐵 ([𝑏] 𝑖 )}.
+                    𝐵
+
+   The signed interval domain ⟨𝑆,
+                                ˆ ⊑ ˆ, ⊔ ˆ, ⊓ ˆ ⟩ is a domain for representing bitvectors as intervals
+                                    𝑆   𝑆    𝑆
+                                   def
+of signed bit-vectors. Formally, 𝑆 = {[𝑙, ℎ] | 𝑙, ℎ ∈ {0, 1} 𝑤 , ⟦bvsle⟧ (𝑙, ℎ) = true} where bvsle
+                                 ˆ
+
+                                  Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+174:12                                                                                   Yongho Yoon, Woosuk Lee, and Kwangkeun Yi
+
+                                                                                                                                   𝛾𝑆ˆ
+is the binary predicate for signed less than or equal. The galois connection P (Z) ←
+                                                                                   −−−
+                                                                                     −−
+                                                                                      −−
+                                                                                       −−
+                                                                                        −−−− 𝑆ˆ is
+                                                                                         −→                                        𝛼𝑆ˆ
+standard.
+   The unsigned interval domain ⟨𝑈ˆ , ⊑𝑈ˆ , ⊔𝑈ˆ , ⊓𝑈ˆ ⟩ is a domain for representing bitvectors as intervals
+                                      def
+of unsigned bit-vectors. Formally, 𝑈ˆ = {[𝑙, ℎ] | 𝑙, ℎ ∈ {0, 1} 𝑤 , ⟦bvule⟧ (𝑙, ℎ) = true} where bvule
+                                                                                                                                  𝛾𝑈ˆ
+is the binary predicate for unsigned less than or equal. The galois connection P (Z) ←
+                                                                                     −−−
+                                                                                       −−
+                                                                                        −−
+                                                                                         −−
+                                                                                          −−−− 𝑈ˆ is
+                                                                                           −→                                     𝛼𝑈ˆ
+also standard.
+   The above three domains are combined to form the product abstract domain 𝐷ˆ = 𝐵ˆ × 𝑆ˆ × 𝑈ˆ .
+                                       𝛾
+with the galois connection P (Z) ← −−−
+                                     −−
+                                      −−
+                                       −−−→
+                                          −− 𝐷ˆ that can be simply defined by combining the galois
+                                       𝛼−−
+connections of the three domains.
+   To let the information flow among the three domains to mutually refine them, we need to use a
+reduction operator that exploits the information tracked by one of the three domains to refine the
+information tracked by the others. The reduction requires to compute a fixpoint [Granger 1992],
+and our iterated reduction operator 𝜌 : 𝐷ˆ → 𝐷ˆ is defined as follows:
+    def
+ 𝜌 = fix 𝜆⟨𝑏, 𝑠, 𝑢⟩. ⟨𝑏 ⊓ 𝜋𝑆→
+                           ˆ 𝐵ˆ (𝑠) ⊓ 𝜋𝑈ˆ →𝐵ˆ (𝑢), 𝑠 ⊓ 𝜋 𝐵→
+                                                         ˆ 𝑆ˆ (𝑏) ⊓ 𝜋𝑈ˆ →𝑆ˆ (𝑢), 𝑢 ⊓ 𝜋 𝐵→
+                                                                                       ˆ 𝑈ˆ (𝑏) ⊓ 𝜋𝑆→
+                                                                                                   ˆ 𝑈ˆ (𝑠)⟩
+
+where 𝜋𝐷ˆ 1 →𝐷ˆ 2 is our projection operator that propagates information from abstract domain 𝐷ˆ 1
+to another domain 𝐷ˆ 2 . For example, the 𝜋𝐵→  ˆ 𝑈ˆ operator takes a bitwise element and returns an
+unsigned interval whose lower bound (resp. upper bound) is a bit-vector obtained by replacing
+every ⊤ abstract bit with 0 (resp. 1). More details can be found at the supplementary material.
+   A reduction operator 𝜌 in abstract domain 𝐷ˆ should be sound in the sense that it has to satisfy
+the following two properties: for all 𝑑 ∈ 𝐷,  ˆ (1) 𝜌 (𝑑) ⊑ 𝑑 (the result of its application is a more
+precise abstract element); (2) 𝛾 (𝜌 (𝑑)) = 𝛾 (𝑑) (an abstract element and its reduction has the same
+meaning).
+   Theorem 4.1. Our reduction operator 𝜌 is sound.
+
+Abstract Operators. Now we define forward and backward abstract operators. Because we deal
+with binary numbers with a fixed number of digits, all the domains consider possible overflows/un-
+                                                                                    →
+                                                                                    −
+derflows. For each bit-vector operation 𝑓 of arity 𝑘, the forward abstract operator 𝑓 # : 𝐷ˆ 𝑘 → 𝐷,
+                                                                                                 ˆ
+which takes 𝑘 abstract elements of arguments and returns an abstract element of the result, is
+defined to be
+         →
+         −#                                                  →
+                                                             −                        →
+                                                                                      −                        →
+                                                                                                               −
+         𝑓 (⟨𝑏 1, 𝑠 1, 𝑢 1 ⟩, · · · , ⟨𝑏𝑘 , 𝑠𝑘 , 𝑢𝑘 ⟩) = 𝜌 (⟨ 𝑓 #ˆ (𝑏 1, · · · , 𝑏𝑘 ), 𝑓 #ˆ (𝑠 1, · · · , 𝑠𝑘 ), 𝑓 #ˆ (𝑢 1, · · · , 𝑢𝑘 )⟩)
+                                                                   𝐵                       𝑆                     𝑈
+      →− →  −          →
+                       −
+where 𝑓 #ˆ , 𝑓 #ˆ , and 𝑓 #ˆ are the forward operators in the bitwise domain, the signed domain, and the
+         𝐵     𝑆          𝑈
+                                                                                        ←
+                                                                                        −
+unsigned domain, respectively. For each 1 ≤ 𝑖 ≤ 𝑘, the backward abstract operator 𝑓 𝑖# : 𝐷ˆ 𝑘+1 → 𝐷ˆ 𝑘
+takes the current abstract element of the result and 𝑘 abstract elements of arguments, and returns
+a more refined abstract element of the 𝑖-th argument.
+ ←
+ −                                                              ←−                       ←−                       ←−
+ 𝑓 𝑖# (⟨𝑏, 𝑠, 𝑢⟩, ⟨𝑏 1, 𝑠 1, 𝑢 1 ⟩ · · · ⟨𝑏𝑘 , 𝑠𝑘 , 𝑢𝑘 ⟩) = 𝜌 (⟨ 𝑓 #ˆ (𝑏, 𝑏 1 · · · 𝑏𝑘 ), 𝑓 #ˆ (𝑠, 𝑠 1 · · · 𝑠𝑘 ), 𝑓 #ˆ (𝑢, 𝑢 1 · · · 𝑢𝑘 )⟩)
+                                                                   𝐵,𝑖                      𝑆,𝑖                      𝑈 ,𝑖
+       ←
+       − ←    −         ←
+                        −
+where 𝑓 #ˆ , 𝑓 #ˆ , and 𝑓 #ˆ are the backward operators in the bitwise domain, the signed domain,
+         𝐵,𝑖   𝑆,𝑖        𝑈 ,𝑖
+and the unsigned domain, respectively. We always apply the reduction operator whenever we apply
+the forward or backward operators in order to maintain analysis results in the most precise form.
+  In the following, we describe the forward and backward operators for each domain. We will use
+the same bit-vector operator names as the ones defined in the SMT-LIB v2.0 standard.
+
+Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+                                                                                                                            174:13
+
+
+Forward Abstract Operators for the Signed/Unsigned Interval Domains In the following,
+we explain some salient features of the forward abstract operators in detail.
+     −−−−→
+   • bvadd#ˆ is defined similarly to the standard integer interval arithmetic with a slight difference
+            𝑆
+     that it is aware of possible overflows/underflows. Formally,
+     −−−−→#                                                                                              −−−−→
+     bvadd ˆ ( [𝑙 1, ℎ 1 ], [𝑙 2, ℎ 2 ])   =     Wrap𝑆ˆ ([⟦bvadd⟧ (𝑙 1, 𝑙 2 ), ⟦bvadd⟧ (ℎ 1, ℎ 2 )])   ( bvadd#ˆ is similar.)
+             𝑆                                                                                                    𝑈
+
+      where Wrap𝑆ˆ ( [𝑙, ℎ]) = [𝑙, ℎ] if ([𝑙, ℎ] ⊑𝑆ˆ [smin, smax]) and [smin, smax] otherwise. The
+      other abstract operators for subtraction, multiplication, and division are similarly defined.
+      −−−−→
+    • bvneg#ˆ switches the lower and upper bounds of the interval with the exception of the case
+            𝑈
+      where the lower bound represents zero and the upper bound represents a non-zero value.
+      That is because the negation of 1 is −1 which is represented as 11 · · · 12 in two’s complement
+      representation. 11 · · · 12 is the largest value in the unsigned interval domain. Therefore, the
+      top element is returned in this case. Formally,
+                                                  (
+                      −−−−→#                          ⊤𝑈ˆ                                (𝑙 = 𝑝 (0), ℎ ≠ 𝑝 (0))
+                      bvneg ˆ ([𝑙, ℎ])      =
+                             𝑈                        [⟦bvneg⟧ (ℎ), ⟦bvneg⟧ (𝑙)]         (otherwise)
+      −−−−−−→
+    • bvsdiv#ˆ simulates the following concrete semantics of the signed division.
+                  𝑆
+
+                              
+                               ⟦bvudiv⟧ (𝑠, 𝑡)                                     (if 𝑠 and 𝑡 are both non-negative)
+                              
+                               ⟦bvudiv⟧ (⟦bvneg⟧ (𝑠), ⟦bvneg⟧ (𝑡))
+                                                                                   (if both are negative)
+  ⟦bvsdiv⟧ (𝑠, 𝑡) =
+                     
+                       ⟦bvneg⟧ (⟦bvudiv⟧ (⟦bvneg⟧ (𝑠), 𝑡))                         (if 𝑠 is negative and 𝑡 is non-negative)
+                      ⟦bvneg⟧ (⟦bvudiv⟧ (𝑠, ⟦bvneg⟧ (𝑡)))                          (if 𝑠 is non-negative and 𝑡 is negative)
+                     
+                                       −−−−−−→
+      Following the above semantics, bvsdiv#ˆ splits the intervals of the arguments into the four
+                                              𝑆
+                                                                         −−−−−−→
+      cases and computes the quotient of each case separately using the bvudiv# operator, which
+      is standardly defined.
+
+
+Forward Abstract Operators for the Bitwise Domain Some remarkable points are as follows:
+     −−−−→
+   • bvadd#ˆ is defined by the RippleCarryAdd operator defined in [Regehr and Duongsaa 2006],
+           𝐵
+     which simulates the ripple-carry addition of two bit-vectors in the bitwise domain.
+     −−−−→#
+   • bvneg ˆ is defined from that ⟦bvneg⟧ (𝑏) = ⟦bvadd⟧ (⟦bvnot⟧ (𝑏), 𝑝 (1)) [Warren 2012].
+           𝐵
+     −−−−→
+   • bvmul#ˆ is defined from that the number of trailing zeros in the result of ⟦bvmul⟧ (𝑏 1, 𝑏 2 ) is
+           𝐵
+     the sum of the number of trailing zeros in 𝑏 1 and 𝑏 2 . Formally,
+           −−−−→#
+           bvmul ˆ (𝑏 1, 𝑏 2 )         = ⊤𝑤−(𝑛+𝑚) · 0 (𝑛+𝑚)                where 𝑛 = Trail0s(𝑏 1 ), 𝑚 = Trail0s(𝑏 2 )
+                      𝐵
+
+                                                            −−−−−−→
+    • The abstract operators for the arithmetic shift bvashr#ˆ is defined using the shift-right
+                                                                    𝐵
+      operators in the bitwise domain defined as follows: 𝑏 >>𝑥# 𝑖 shifts all the abstract bits of 𝑏 to
+      the right by 𝑖 bits, and the leftmost bits are filled with 𝑥. Formally,
+                          −−−−−−→#                     Ã                                      unsigned
+                          bvashr ˆ (𝑏 1, 𝑏 2 )    =         {𝑏 1 >>#[𝑏 ] (𝑖    mod 𝑤) | 𝑖 ∈ 𝛾 ˆ        (𝑏 2 )}.
+                                   𝐵                                 1 1                      𝐵
+
+      The other abstract shift operators are similarly defined.
+
+                                           Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+174:14                                                                                 Yongho Yoon, Woosuk Lee, and Kwangkeun Yi
+
+
+Backward Abstract Operators for the Signed/Unsigned Interval Domains Some notewor-
+thy points are as follows:
+      ←−−−−−−
+    • bvurem#ˆ (𝑖, 𝑖 1, 𝑖 2 ) refines the abstract value of the first operand (𝑖 1 ) from abstract values of
+             𝑈 ,1
+      the second operand (𝑖 2 ) and the result (𝑖), and is defined as follows:
+                                                        
+                       ←−−−−−−#                               𝑖 ⊓𝑈ˆ 𝑖 1   (⟦bvule⟧ (𝑝 (2𝑤−1 ), 𝑙𝑏 (𝑖)) = true)
+                       bvurem ˆ (𝑖, 𝑖 1, 𝑖 2 )     =
+                                𝑈 ,1                          ⊤           (otherwise)
+         This behavior is based on the fact that for some bit-vectors 𝑏 1 , 𝑏 2 , and 𝑏, if ⟦bvurem⟧ (𝑏 1, 𝑏 2 ) =
+         𝑏 and the most significant bit of 𝑏 is 1, then 𝑏 = 𝑏 1 . The proof is available in the supplementary
+         material.
+
+Backward Abstract Operators for the Bitwise Domain Some noteworthy operators are as
+follows:
+      ←−−−−
+    • bvand#ˆ infers the abstract value of the left operand of bvand from the abstract values of the
+            𝐵,1
+      other operand and the result. For example, for each abstract bit of the result, if the bit is 1,
+      we can infer that the corresponding bit of the first operand is 1 as well. Formally,
+                                                                                             1
+                                                                                                    ([𝑏]𝑖 = 1)
+          ←−−−−#
+                                                                                            
+                                                                                            
+          bvand ˆ (𝑏, 𝑏 1, 𝑏 2 )       =   𝑑 1𝑑 2 · · · 𝑑 𝑤      where ∀1 ≤ 𝑖 ≤ 𝑤 . 𝑑𝑖 =      0      ([𝑏]𝑖 = 0, [𝑏 2 ]𝑖 = 1)
+                 𝐵,1                                                                         ⊤      (otherwise)
+                                                                                            
+                                                                                            
+      The abstract operators for the other bitwise logical operators are defined similarly.
+           ←−−−−
+    • For bvshl#ˆ (𝑏, 𝑏 1, 𝑏 2 ), if the shift amount is a constant, we can infer the abstract value of the
+                 𝐵,1
+      first operand by shifting 𝑏 to the right (i.e., reverse direction) by the shift amount. However,
+      the shift amount is not exactly known in general, so we should overapproximate it. We apply
+      the join operator into the results of shifting 𝑏 to the right by all possible shift amounts. The
+      minimum shift amount is zero and the maximum shift amount is the number of trailing zeros
+      of 𝑏 obtainable assuming every unknown bit (⊤) is 0. This range can be more refined by
+      considering the abstract value of the second operand. Formally,
+          ←−−−−#                           Ã
+          bvshl ˆ (𝑏, 𝑏 1, 𝑏 2 )       =         {𝑏 >>#⊤ (𝑛 mod 𝑤) | 𝑛 ∈ 𝛾𝑈ˆ ([0, Trail0s(𝑏 [0/⊤])] ⊓ 𝜋𝐵→
+                                                                                                       ˆ 𝑈ˆ (𝑏 2 ))}
+                 𝐵,1
+      ←−−−−
+    • bvmul#ˆ is most complicated among the backward abstract operators, which is defined as
+            𝐵,1
+      follows:
+                                            (
+                                                                                unsigned             unsigned
+               ←−−−−#                            InferMulOp(𝑏 2, 𝑏)          (|𝛾 ˆ       (𝑏 2 )| = |𝛾 ˆ       (𝑏)| = 1)
+               bvmul ˆ (𝑏, 𝑏 1, 𝑏 2 ) =                                         𝐵                    𝐵
+                        𝐵,1              ⊤𝑤−𝑙 · 0𝑙              (otherwise)
+                       where 𝑙 = max{0, Trail0s(𝑏) − Trail0s(𝑏 2 [0/⊤])}
+         where the InferMulOp will be defined soon. This backward abstract operator precisely infers
+         the abstract value of the first operand if the second operand and the result are exactly
+         known. Suppose the second operand and the result represent non-negative numbers 𝑛 2 and
+         𝑛 respectively 2 . Because the multiplication is modulo 2𝑤 , our goal is to find 𝑥 such that
+                                                       𝑥 × 𝑛2 ≡ 𝑛          (mod 2𝑤 )                                           (1)
+         When both 𝑛 2 and 𝑛 are not zero, we can find 𝑥 as follows (cases where 𝑛 2 or 𝑛 is zero
+         are trivial): let the numbers of trailing zeros of 𝑏 2 and 𝑏 are 𝑡 2 and 𝑡 respectively. Because
+2 The bitwise multiplication is not aware of the signedness of the operands. Therefore, it is safe to consider the operands as
+
+non-negative numbers.
+
+
+Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+                                                                                                                  174:15
+
+
+        𝑛 2 ≠ 0 ∧ 𝑛 ≠ 0, 𝑛 2 = 2𝑡2 × 𝑚 2 and 𝑛 = 2𝑡 × 𝑚 for some odd numbers 𝑚 2 and 𝑚. We have two
+        cases.
+        – Case 1) 𝑡 ≥ 𝑡 2 : We can transform the equation (1) into 𝑥 × (𝑛 2 /2𝑡2 ) ≡ (𝑛/2𝑡2 ) (mod 2𝑤−𝑡2 )
+           because 𝑛 2 /2𝑡2 is odd, 𝑛 2 /2𝑡2 and 2𝑤−𝑡2 are coprime. By the extended Euclidean algorithm,
+           we can find the modular multiplicative inverse of 𝑛 2 /2𝑡2 modulo 2𝑤−𝑡2 . Let 𝑦 be the modular
+           multiplicative inverse. Then,
+            𝑥 × (𝑛 2 /2𝑡2 ) × 𝑦 ≡ (𝑛/2𝑡2 ) × 𝑦 (mod 2𝑤−𝑡2 )            (multiplying 𝑦 into both sides)
+            𝑥 ≡ (𝑛/2𝑡2 ) × 𝑦 (mod 2𝑤−𝑡2 )
+            𝑥 × 2𝑡2 ≡ (𝑛/2𝑡2 ) × 𝑦 × 2𝑡2 (mod 2𝑤 )                   (multiplying 2𝑡2 into both sides)
+          In conclusion, in binary representation of 𝑥, the last 𝑤 − 𝑡 2 bits must be equal to those of
+          𝑛/2𝑡2 × 𝑦. The first 𝑡 2 bits of 𝑥 can be any values.
+        – Case 2) 𝑡 < 𝑡 2 : In this case, there is no solution to the equation (1). That is because the
+          linear congruence (1) has solutions if and only if the greatest common divisor (gcd) of 𝑛 2
+          and 2𝑤 divides 𝑛. The gcd of 𝑛 2 and 2𝑤 is 2𝑡2 , and it cannot divide 𝑛 because 𝑡 2 > 𝑡.
+        The above case analysis is implemented in the function InferMultOperand defined as follows:
+                         
+                         
+                          ⊤                                     (𝑛 2 = 𝑛 = 0)
+                                                                 (𝑛 2 ≠ 0, 𝑛 = 0)
+                         
+                          0
+                         
+    InferMulOp(𝑏 2, 𝑏) =
+                         
+                          ⊤𝑡2 · [𝑝 (𝑛/2𝑡2 × 𝑦)] 𝑤−𝑡2 :𝑤         (𝑛 2 ≠ 0, 𝑛 ≠ 0, 𝑡 ≥ 𝑡 2 )
+                          ⊥
+                         
+                                                                 (𝑛 2 = 0 ∧ 𝑛 ≠ 0 ∨ 𝑛 2 ≠ 0 ∧ 𝑛 ≠ 0 ∧ 𝑡 < 𝑡 2 )
+                         
+                         unsigned               unsigned
+        where 𝑛 2 = 𝛾 ˆ        (𝑏 2 ), 𝑛 = 𝛾 ˆ      (𝑏), 𝑡 = Trail0s(𝑏), 𝑡 2 = Trail0s(𝑏 2 ), and 𝑦 is the
+                        𝐵                   𝐵
+        modular multiplicative inverse of 𝑛 2 /2 modulo 2𝑤−𝑡2 .
+                                                𝑡 2
+
+        If the second operand and the result are not exactly known, to overapproximate the abstract
+        value of the first operand, we just exploit the fact that the number of trailing zeros of the
+        result is the sum of the number of trailing zeros of the first operand and the second operand.
+
+4.3     Abstract Domain for Boolean Algebra
+Our abstract domain for Boolean algebra is based on the abstract domain for bit vectors. The
+abstract domain is the set 𝐵 = {0, 1, ⊥, ⊤} and can be understood as a variant of the bitwise domain
+where the length 𝑤 = 1. The abstract operators for Boolean operators such as and, or, xor, not are
+defined in the same way as in the bitwise domain.
+
+5     EVALUATION
+We have implemented our approach in a tool called Simba3 which consists of 10K lines of OCaml
+code and employs Z3 [De Moura and Bjorner 2008] as the constraint solving engine. Our tool is
+publicly available for download4 .
+  This section evaluates Simba to answer the following questions:
+    Q1: How does Simba perform on synthesis tasks from a variety of different application domains?
+    Q2: How does Simba compare with existing synthesis techniques?
+    Q3: How effective is the abstract interpretation-based pruning technique in Simba for reducing
+        the search space compared to other alternatives (e.g., using an SMT solver, no pruning)?
+   All of our experiments were run on a Linux machine with an Intel Xeon 2.6GHz CPU and 256GB
+of RAM.
+3 Synthesis from Inductive specification eMpowered by Bidirectional Abstract interpretation
+4 https://github.com/yhyoon/simba
+
+
+
+                                    Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+174:16                                                                         Yongho Yoon, Woosuk Lee, and Kwangkeun Yi
+
+
+5.1      Experimental Setup
+Benchmarks. We chose 1,875 synthesis tasks from three different application domains: i) bit-
+vector manipulation without conditionals (BitVec), ii) bit-vector manipulation with conditionals
+(BitVec-Cond), and iii) circuit transformation (Circuit),
+  They are from the benchmarks used for evaluating the Duet tool, prior work on program
+deobfuscation [David et al. 2020], and the annual SyGuS competition [Past SyGuS Competition
+2020].
+  The BitVec domain comprise 544 tasks of the background theory of bit-vector arithmetic. All of
+the solutions to these problems are condtional-free programs.
+      • HD: 44 benchmarks from the SyGuS competition suite (General track). These problems
+        originate from the book Hacker’s Delight [Warren 2012], which is commonly referred to
+        as the bible of bit-twiddling hacks. The semantic specification is a universally-quantified
+        first-order formula that is functionally equivalent to the target program. 5
+      • Deobfusc: 500 benchmarks from the evaluation benchmarks of a program deobfuscator
+        QSynth (dataset “VR-EA" in [David et al. 2020]). These problems aim at finding programs
+        equivalent to randomly generated bit-manipulating programs from input-output examples,
+        and have been used to evaluate the state-of-the-art deobfuscators [Blazytko et al. 2017;
+        David et al. 2020; Menguy et al. 2021]. Because the obfuscated programs are syntactically
+        complicated, the best practice so far is a black-box approach that samples input-output
+        behaviors from the obfuscated programs and synthesize the target programs from the samples.
+        Following this approach, we have randomly generated 20 input-output examples for each
+        obfuscated program.
+   The BitVec-Cond domain comprise 750 tasks from the Duet evaluation benchmarks 6 . These
+problems concern finding programs equivalent to randomly generated bit-manipulating programs
+from input-output examples ranging from 10 to 1,000. In contrast to the Deobfusc benchmarks,
+the solutions to these problems often contain conditionals.
+   The Circuit domain from the evaluation benchmarks of Duet comprise 581 tasks of the back-
+ground theory of SAT.
+      • Lobster: 369 problems from [Lee et al. 2020]. These problems are motivated by optimizing
+        homomorphic evaluation circuits. Each problem is, given a circuit 𝐶, to synthesize a circuit
+        𝐶 ′ that computes the same function as 𝐶 but has a smaller multiplicative depth that is
+        functionally equivalent to 𝐶.
+      • Crypto: 212 problems used in the SyGuS competition and motivated by side-channel attacks
+        on cryptographic modules in embedded systems. Each problems is, given a circuit 𝐶, to
+        synthesize a constant-time circuit 𝐶 ′ (i.e. resilent to timing attacks) that computes the same
+        function as 𝐶.
+
+Baseline Solvers. We compare Simba against existing general-purpose synthesis tools with
+some form of domain specialization. Our algorithm is generally applicable to any domain, but
+it requires a suitable abstract domain for the target problems to further improve the efficiency.
+Thus, we compare Simba with the following general-purpose tools that employ a kind of domain
+specialization:
+
+5 We have slightly modified the original benchmarks, which are for 32-bit integers, to be for 64-bit integers. This is for a fair
+
+comparison with Probe since Probe can handle 64-bit integers only.
+6 The benchmarks are slight modifications of the SyGuS competition suite (PBE-BitVector track). The syntactic restriction in
+
+each problem is replaced by a more general grammar.
+
+
+Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+                                                                                                                   174:17
+
+
+
+
+           Fig. 2. Comparison between Simba and the other baseline solvers on different domains.
+
+
+   • Duet is the state-of-the-art tool for inductive SyGuS problems that employs a bidirectional
+     search strategy with a domain specialization technique called top-down propagation. Top-
+     down propagation is a divide-and-conquer strategy that recursively decomposes a given
+     synthesis problem into multiple subproblems. It requires inverse semantics operators that
+     should be designed for each usable operator in the target language.
+   • Probe performs a bottom-up search with guidance from a probabilistic model. Such a proba-
+     bilistic model can be learned just in time during the search process by learning from partial
+     solutions encountered along the way. Thus, such a model can be viewed as a result of domain
+     specialization for each problem instance.
+We compare Simba with Duet for all the benchmarks and with Probe only for the BitVec domain
+because the Circuit and the BitVec-Cond domains are beyond the scope of Probe7 .
+
+5.2    Effectiveness of Simba
+We evaluate Simba on all the benchmarks and compare it with Duet and Probe. For each instance,
+we measure the running time of synthesis and the size of the synthesized program, using a timeout
+of one hour.
+   The results are summarized in Fig. 3. Fig. 3d shows the statistics of the solving times and solution
+sizes, and Fig. 3a and 3b show the number of instances solved with the fastest time for each domain
+per solver. Because Probe is not applicable to the Circuit and BitVec-Cond domains, the results
+for Probe on these domains are not shown.
+   Overall, Simba outperforms the other baseline tools both in terms of the number of instances
+solved and the average solving time. As shown in Fig. 3d, Simba solves 1716 instances, while Duet
+and Probe solve 1671 and 409 instances respectively. Simba is the fastest solver in 1397 instances
+(75% of the total), while Duet is the fastest in 397 instances. Fig. 2 shows the cactus plot of the
+solving times for Simba, Duet, and Probe. The horizontal axis represents the number of solved
+instances and the vertical axis represents the cumulative solving time. The plot suggests that Simba
+solves more instances than Duet and Probe in a shorter time.
+   In comparison to Duet, Simba is more efficient in the BitVec domain and Circuit domain,
+while Duet is more efficient in the BitVec-Cond domain. Since Simba performs the forward-
+backward analysis for each input-output example, the number of examples affects the efficiency.
+In the BitVec-Cond domain, the number of examples is unusually large (up to 1000), which
+makes Simba inefficient. On the other hand, Duet is able to handle the large number of examples
+efficiently. However, for the other domains (particularly BitVec), Simba outperforms Duet because
+Duet’s inverse semantics often creates sub-problems that are hard to solve whereas Simba does
+not generate such sub-problems.
+7 The solutions of the BitVec-Cond instances are large conditional programs that require extensive case splitting which is
+
+not supported by Probe.
+
+
+                                    Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+174:18                                                                    Yongho Yoon, Woosuk Lee, and Kwangkeun Yi
+
+
+
+
+(a) # Fastest solved in the BitVec (b) # Fastest solved in the Circuit (c) # Fastest solved in the BitVec-
+domain                             domain                              Cond domain
+
+  Benchmark                # Solved           Time (Average)      Time (Median)      Size (Average)     Size (Median)
+    category      Simba     Duet Probe          S     D      P      S   D    P         S      D     P     S D P
+      HD              42        36   31       5.7   42.7 11.8     0.1 0.2 1.0        7.7     8.5 6.5      6    8    5
+   Deobfusc          477      420   378      37.3 175.8 68.0      0.0 0.1 2.9        9.6    10.0 7.9      9    9    8
+ BitVec-Cond         619      646     -     123.6   28.6     -    5.3 5.7     -    269.6 350.6      -   137 46      -
+    Lobster          369      369     -       0.4    7.4     -    0.2 0.8     -     12.9    10.9    -    13 11      -
+    Crypto           209      200     -       9.7    1.8     -    0.1 0.2     -     11.9    12.8    -    11 12      -
+    Overall        1716      1671   409      56.4 58.0 63.7       0.2 1.7 2.7      107.1 145.4 7.8       15 13 8
+
+(d) Statistics for the solving times and solution sizes. All times are in seconds. Probe could not run for the
+Circuit and BitVec-Cond domain. The number of problems in the HD, Deobfusc, Lobster, Crypto, and
+BitVec-Cond categories are 44, 500, 369, 212, and 750 respectively (1875 in total).
+Fig. 3. Main result comparing the performance of Simba, Duet, and Probe (breakdown by categories). The
+timeout is set to one hour.
+
+   We measure solution quality by solution sizes in AST nodes. According to Occam’s razor, smaller
+solutions are better since they are less likely to overfit the input-output examples. In general, Probe
+generates the smallest solutions (with average sizes of 6.5 and 7.9 for two domains), although Simba
+is also capable of generating solutions of similar sizes (with average sizes of 7.7 and 9.6). The slight
+gap between the two tools can be attributed to the fact that Simba can solve instances that Probe
+cannot solve due to its limited scalability. For example, Simba’s solutions for the two domains not
+solved by Probe have average sizes of 10.5 and 13.1, respectively, while Simba’s solutions to the
+ones solved by both tools have average sizes of 6.8 and 8.6, respectively.
+
+Result in Detail. We study the results for each domain in detail. Table 1 shows the detailed
+results on randomly chosen 25 problems (5 for each category). The results suggest the significant
+impact of the forward and backward analyses. For example, for hd-20-d1-prog, Simba discarded
+11, 365 out of total 11, 710 partial programs generated during the synthesis (97.1%) with a small
+overhead of 0.22 seconds. For target-410, 187, 858 out of 188, 501 partial programs (99.7%) are
+early pruned by Simba with an acceptable overhead of 3.06 seconds. Furthermore, we observe that
+even partial programs are not discarded, the holes in the partial programs are highly constrained
+by the necessary preconditions, thereby significantly reducing the number of components to be
+explored for the completion of the partial programs. On the other hand, Duet and Probe do not
+perform such pruning and thus generate many unlikely candidates, taking 10 to 1000 times longer
+than Simba.
+
+Analysis of the Impact of the Number of Examples. We study the impact of the number of
+examples on the performance of Simba. Since the forward-backward analysis is performed as many
+times as the number of examples, the number of examples affects the efficiency, but the impact
+
+Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+                                                                                                                     174:19
+
+
+Table 1. Results for 25 randomly chosen benchmark problems (5 for each category), where Time gives
+synthesis time, 𝑇𝐴 gives time spent for forward and backward analysis, and |𝑃 | shows the size of the
+synthesized program (measured by number of AST nodes).
+
+             Benchmark                                       Probe           Duet                   Simba
+                            Benchmark
+              category                                    Time |𝑃 |       Time |𝑃 |        Time         𝑇𝐴    |𝑃 |
+                            hd-03-d5-prog                  0.85    4        1.19   4         0.06      0.00     4
+                            hd-07-d0-prog                  0.92    6        0.09   6         0.07      0.00     6
+                 HD         hd-14-d5-prog                  4.91    9        >1h    -         0.60      0.26     9
+                            hd-19-d1-prog                   >1h    -        >1h    -        10.79      7.07    19
+                            hd-20-d1-prog                   >1h    -      228.98  15        98.22      0.22    15
+                            target_9                        >1h    -     2310.23  16        31.45      2.85    16
+                            target_119                     0.87    5        0.02   8         0.05      0.03     9
+             Deobfusc       target_385                    15.35    9       37.46  10         0.33      0.25     9
+                            target_410                      >1h    -     2635.78  16        69.38      3.06    16
+                            target_449                     2.61    7        0.01   7         0.03      0.00     7
+                            133_1000                           -   -       48.18  35       166.55      6.89   139
+                            23_10                              -   -      340.75  62         0.89      0.40    15
+           BitVec-Cond      60_100                             -   -        6.90  14         0.15      0.10    14
+                            icfp_gen_10.7                      -   -        4.68  67         1.19      0.20   192
+                            icfp_gen_14.1                      -   -        6.29 154        49.61     37.75   415
+                            hd09.eqn_45_0                      -   -       21.95  15        11.09      0.32    13
+                            longest_1bit-opt.eqn_63_1          -   -        0.59  13         0.17      0.01    11
+              Lobster       longest_1bit-opt.eqn_75_1          -   -        1.31  14         0.24      0.01    15
+                            p03.eqn_38_2                       -   -        0.22   9         0.11      0.01     9
+                            p09.eqn_49_1                       -   -        0.24   7         0.19      0.01     9
+                            CrCy_2-P6_2-P6                     -   -      193.68  20         0.65      0.07    20
+                            CrCy_5-P9-D5-sIn                   -   -        0.13  11         0.11      0.00    11
+               Crypto       CrCy_8-P12-D5-sIn4                 -   -        0.21  11         0.14      0.01    11
+                            CrCy_8-P12-D7-sIn5                 -   -        1.99  19         0.63      0.04    19
+                            CrCy_10-sbox2-D5-sIn11             -   -        0.28   9         0.13      0.00     9
+
+on efficiency is not significant in practice as long as the number of examples is not too large. We
+have conducted experiments with 500 deobfuscation benchmarks with the number of examples
+ranging from 5 to 20. When the number of examples given to Simba are 5, 10, and 20, the average
+synthesis time is 29.8, 31.0, and 37.3 seconds, respectively. In all cases, the average solution size is
+9.5. In other words, the average synthesis time increased by just 25% when the number of examples
+increased fourfold (from 5 to 20).
+
+Summary of Results. Simba solves harder synthesis problems more quickly compared to the
+state-of-the-art baseline tools in diverse domains.
+
+5.3    Efficacy of Our Abstract Interpretation-based Pruning
+We now evaluate the effectiveness of our abstract interpretation-based pruning. For this purpose,
+we compare the performance of three variants of Simba, each using a different combination:
+   • Simba with the forward and backward analyses (i.e., the original Simba)
+   • ForwardOnly only with the forward analysis
+   • BruteForce without any pruning technique (i.e., only with the bidirectional search strategy) 8
+   • SMTSolver equipped with the SMT-based pruning. It checks the feasibility of each partial
+     program by checking the satisfiability of an SMT formula. The formula encodes the partial
+     program under construction and the desired input-output behavior of the program. A similar
+8 Despite the pruning is disabled, the other optimizations such as symmetry breaking and observational equivalence reduction
+
+are still enabled.
+
+
+                                    Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+174:20                                                                    Yongho Yoon, Woosuk Lee, and Kwangkeun Yi
+
+
+
+                                            Benchmark               # Solved                        Time (Average)
+                                             category         S    FW SMT               BF     S     FW SMT            BF
+                                               HD           42      41      40       41       5.7    12.9   163.6     13.4
+                                             Deobfusc      477     421     424      421      37.3   128.8   178.7    131.2
+                                             Lobster       369     368     358      368       0.4    43.7   234.9     43.5
+                                              Crypto       209     209     208      209       9.7    11.8    45.7     11.9
+                                              Overall     1097    1039    1030     1039      18.4    70.5   170.8     71.5
+
+                                          (b) Statistics for the solving times. S, FW, SMT, and BF denote Simba,
+(a) Performance of different vari-
+                                          ForwardOnly, SMTSolver, and BruteForce variants respectively.
+ants of Simba
+                                        Fig. 4. Result for the ablation study.
+      approach was used in Morpheus [Feng et al. 2017] to prune the search space. Because the
+      SMT solving is without any approximation, it is expected to be more accurate than the
+      abstract interpretation-based pruning at the cost of higher computational cost.
+By comparing the performance of these variants, we aim to understand
+    • the overall impact of our abstract interpretation-based pruning (Simba vs. BruteForce)
+    • the necessity of the backward analysis (Simba vs. ForwardOnly vs. BruteForce)
+    • the cost-effectiveness of using an abstract interpreter (ForwardOnly vs. SMTSolver)
+  Fig. 4 shows the results of the ablation study (Fig. 4b shows the statistics for the solving times
+and Fig. 4a shows the cactus plots). We exclude the BitVec-Cond benchmarks which require
+extensive case-splitting dealt with by the divide-and-conquer strategy [Alur et al. 2017] to focus on
+evaluating the core idea of our approach.
+  The first observation is that our abstract interpretation-based pruning is effective in reducing
+the search space (1097 solved by Simba vs. 1039 solved by BruteForce). The second observation is
+that the backward analysis is necessary to prune the search space effectively because BruteForce
+and ForwardOnly are almost the same whereas Simba is much better than ForwardOnly. The third
+observation is that using the SMT solver is more expensive than using an abstract interpreter (1039
+solved by ForwardOnly vs. 1030 solved by SMTSolver). Though the SMT solver is more accurate than
+the abstract interpreter, the success rate of pruning by the SMT solver is not enough to offset the
+increased computational cost. Thus, using the abstract interpreter strikes a good balance between
+the precision and the computational cost. As an example, for the benchmark hd-14-d1, by the
+SMTSolver variant, the SMT solver is invoked 2,247 times and used to prune 1,091 partial programs.
+This takes 49.08 seconds out of 52.33 seconds spent for solving the benchmark. On the other hand,
+by Simba, the forward-backward analysis is invoked 1,230 times to prune 1,127 partial programs.
+This takes only 0.06 second out of 0.15 second spent for solving the benchmark. This shows the
+cost-effectiveness of using the abstract interpreter.
+
+Summary of Results. Both of the forward and backward analyses are necessary to prune the
+search space effectively. In addition, using the SMT solver is more expensive than using an abstract
+interpreter.
+
+6   RELATED WORK
+Synthesis with Abstract Interpretation. Most of the previous pruning approaches to program
+synthesis by abstract interpretation have employed forward abstract interpretation only [Feng
+et al. 2017; Singh and Solar-Lezama 2011; So and Oh 2017; Vechev et al. 2010; Wang et al. 2017a,b].
+Contrary to these approaches, our technique uses both forward and backward reasoning to derive
+necessary preconditions for missing expressions and use them to effectively prune the search space.
+
+Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+                                                                                                            174:21
+
+
+   Pailoor et al. [2021] accelerate synthesis via backward reasoning to check if necessary precondi-
+tions can be met by each candidate program. In their setting, a necessary precondition for a partial
+program 𝑃 is a constraint on 𝑃’s inputs that must be satisfied by any completion of 𝑃 in order for 𝑃
+to satisfy a given contraint over a desired new data structure. If the condition is falsified by any
+input, the partial program is discarded. Such a necessary precondition can be computed by the
+standard weakest precondition method. However, there is no synergistic combination of forward
+and backward reasoning, thereby potentially limiting the pruning power.
+   To the best of our knowledge, Mukherjee et al. [2020] is the only prior work that uses both
+forward and backward abstract interpretation to prune the search space of synthesis. However, a
+synergistic combination of forward and backward analyses is missing. In this work, the forward and
+backward analyses are performed separately without any interaction between them. In addition,
+their work is limited to LLVM superoptimization, whereas our work is applicable to a wide range
+of inductive synthesis problems by targetting the SyGuS specification language.
+   In contrast to our work that uses fixed abstract domains throughout the synthesis process, another
+line of work is based on abstraction refinement [Guo et al. 2019; Vechev et al. 2010; Wang et al. 2018,
+2017b]. In these approaches, programs that do not satisfy the specification are used to iteratively
+refine the domain until a solution is found. Blaze [Wang et al. 2017b] with its extension [Wang
+et al. 2018] automatically learns predicate abstract domains from a given set of predicate templates
+and training synthesis problems. This approach is useful when there is no expert having a good
+understanding of the target application domain. Our work shows that highly precise abstractions
+for abstract interpretation can significantly improve the synthesis performance without abstraction
+refinement. We expect our key idea of using forward and backward analyses can be applied to
+abstraction refinement-based approaches to further improve the synthesis performance.
+
+
+
+Iterated Forward/Backward Analysis. The combination of forward and backward static anal-
+yses, which was first introduced in [Cousot 1978], has been studied in the context of program
+verification [Cousot and Cousot 1992; Dimovski and Legay 2020; Kafle and Gallagher 2015; Kana-
+gasabapathi and Thushara 2020; Massé 2001], model checking [Cousot and Cousot 1999], coun-
+terexample generation for failed specifications [Yin 2019; Yin et al. 2019], and filtering spurious
+static analysis alarms [Rival 2005]. In general, iterated forward and backward analyses increase the
+precision of the analysis at the cost of increased analysis time.
+   To the best of our knowledge, our work is the first to use the iterated forward and backward
+analyses for inductive synthesis. Our key finding is that a highly precise analysis employing both
+forward and backward reasoning can increase the success rate of pruning, which is enough to
+offset the increased analysis time.
+
+
+
+Abstract Domains for Bit-Vector Arithmetic. There is a large body of work on abstract
+domains for bit-vector arithmetic. In the following, we briefly describe a few of them. Miné [2012]
+and Regehr and Duongsaa [2006] proposed to use a combination of the interval domain and
+the bitwise domain. Some of our forward abstract transfer functions are borrowed from these
+works. The wrapped interval domain [Gange et al. 2015] can precisely track effects of overflow
+and underflow by wrapping the bit-vector values around the minimum and maximum bit-vector
+values. Sharma and Reps [2017] proposed a framework for transforming numeric abstract domains
+over integers to bit-vector domains. Simon and King [2007] proposed a wrap-around operator for
+polyhedra to track the wrap-around effects.
+
+                              Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+174:22                                                                    Yongho Yoon, Woosuk Lee, and Kwangkeun Yi
+
+
+   To the best of our knowledge, none of the existing domains for bit-vectors provide backward
+abstract transfer functions. As already shown in our experiments, the backward abstract interpre-
+tation is crucial for pruning the search space. Therefore, to employ the existing domains for our
+approach, one needs to develop backward abstract transfer functions for them.
+
+Domain Specializations for Inductive Synthesis. Recent works have demonstrated signifi-
+cant performance gains by exploiting domain knowledge in various forms such as domain-specific
+languages [Gulwani 2011; Kini and Gulwani 2015; Rolim et al. 2017], probabilistic models [Barke
+et al. 2020; Lee et al. 2018], inverse semantics [Lee 2021], and templates [Inala et al. 2016]. In
+particular, Duet [Lee 2021] combines the bidirectional search with specialized inverse semantics
+(also called witness functions) that return the set of possible inputs that can produce a given
+output. Our work combines the birectional search with abstract interpretation. Our experiments
+show that highly precise abstract semantics can provide significant performance gains that are
+complementary to those achieved by other domain specializations such as inverse semantics and
+probabilistic models, and it is promising to incorporate our approach into the previous approaches.
+
+7   FUTURE WORK
+A possible extension of our approach is to support other theories in SyGuS such as integer arith-
+metic and string theory. Due to insufficient precision of a single abstract domain, multiple abstract
+domains are necessary including forward/backward abstract transfer functions and a reduction oper-
+ator to define a reduced product of those abstract domains. For integer arithmetic, a reduced product
+of existing non-relational abstract domains such as the interval domain [Cousot and Cousot 1977]
+and the congruence domain [Granger 1989] can be used. Furthermore, relational domains [Miné
+2006; Singh et al. 2017] can aid in tracking the relations between different program holes and
+input variables. For strings, abstract domains using prefixes, suffixes, and simple regular expres-
+sions [Costantini et al. 2011], pushdown automata [Kim and Choe 2011], and parse stacks [Doh
+et al. 2009] can be used. Another possible extension is to synthesize programs with loops. In
+contrast to our current loop-free setting, the forward and backward analyses may require advanced
+widening/narrowing operators (e.g., widening with inferred thresholds [Lakhdar-Chaouch et al.
+2011]) to expedite the convergence of the fixpoint iteration while maintaining precision.
+
+8   CONCLUSION
+We presented a novel program synthesis algorithm that effectively prunes the search space by using
+a forward and backward abstract interpretation. Our implementation Simba and its evaluation
+showed that the performance is significantly better than the existing state-of-the-art synthesis
+systems Duet and Probe. The key to enable this performance and scalability of inductive program
+synthesis is to combine a forward abstract interpretation with a backward one to rapidly narrow
+down the search space. Our experiments also showed that using SMT solver on behalf of such
+sophisticated static analysis does not scale.
+
+ACKNOWLEDGMENTS
+We thank the reviewers for insightful comments. This work was supported by IITP (2022-0-00995)
+, NRF (2020R1C1C1014518, 2021R1A5A1021944) , Supreme Prosecutors’ Office of the Republic
+of Korea grant funded by Ministry of Science and ICT(0536-20220043) , BK21 FOUR Intelligence
+Computing (Dept. of CSE, SNU) (4199990214639) grant funded by the Korea government (MSIT) ,
+Sparrow Co., Ltd. , Samsung Electronics Co., Ltd. (IO220411-09496-01) , Greenlabs (0536-20220078) ,
+and Cryptolab (0536-20220081)
+
+Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+                                                                                                                    174:23
+
+
+Data-Availability Statement.              The artifact is available at Zenodo[Yoon et al. 2023].
+
+REFERENCES
+Rajeev Alur, Rastislav Bodik, Garvit Juniwal, Milo M. K. Martin, Mukund Raghothaman, Sanjit A. Seshia, Rishabh Singh,
+   Armando Solar-Lezama, Emina Torlak, and Abhishek Udupa. 2013. Syntax-guided synthesis. In Formal Methods in
+   Computer-Aided Design (FMCAD ’13).
+Rajeev Alur, Arjun Radhakrishna, and Abhishek Udupa. 2017. Scaling Enumerative Program Synthesis via Divide and
+   Conquer. In Tools and Algorithms for the Construction and Analysis of Systems, Axel Legay and Tiziana Margaria (Eds.).
+   Springer Berlin Heidelberg, Berlin, Heidelberg, 319–336.
+Shraddha Barke, Hila Peleg, and Nadia Polikarpova. 2020. Just-in-Time Learning for Bottom-up Enumerative Synthesis.
+   Proc. ACM Program. Lang. 4, OOPSLA, Article 227 (nov 2020), 29 pages. https://doi.org/10.1145/3428295
+Clark W. Barrett, Aaron Stump, and Cesare Tinelli. 2010. The SMT-LIB Standard Version 2.0.
+Tim Blazytko, Moritz Contag, Cornelius Aschermann, and Thorsten Holz. 2017. Syntia: Synthesizing the Semantics of
+   Obfuscated Code. In 26th USENIX Security Symposium (USENIX Security 17). USENIX Association, Vancouver, BC, 643–659.
+   https://www.usenix.org/conference/usenixsecurity17/technical-sessions/presentation/blazytko
+Giulia Costantini, Pietro Ferrara, and Agostino Cortesi. 2011. Static Analysis of String Values. In Formal Methods and
+   Software Engineering, Shengchao Qin and Zongyan Qiu (Eds.). Springer Berlin Heidelberg, Berlin, Heidelberg, 505–521.
+Patrick Cousot. 1978. Méthodes itératives de construction et d’approximation de points fixes d’opérateurs monotones sur un
+   treillis, analyse sémantique des programmes. Habilitation à diriger des recherches. Institut National Polytechnique de
+   Grenoble - INPG ; Université Joseph-Fourier - Grenoble I. https://tel.archives-ouvertes.fr/tel-00288657 Universités :
+   Université scientifique et médicale de Grenoble et Institut national polytechnique de Grenoble.
+Patrick Cousot. 2021. Principles of Abstract Interpretation. The MIT Press.
+Patrick Cousot and Radhia Cousot. 1977. Abstract Interpretation: A Unified Lattice Model for Static Analysis of Programs
+   by Construction or Approximation of Fixpoints. In Proceedings of The ACM SIGPLAN-SIGACT Symposium on Principles of
+   Programming Languages. 238–252.
+Patrick Cousot and Rahida Cousot. 1992. Abstract Interpretation and Application to Logic Programs. J. Log. Program. 13,
+   2–3 (jul 1992), 103–179. https://doi.org/10.1016/0743-1066(92)90030-7
+Patrick Cousot and Radhia Cousot. 1999. Refining Model Checking by Abstract Interpretation. Automated Software
+   Engineering 6, 1 (1999), 69–95. https://doi.org/10.1023/A:1008649901864
+Robin David, Luigi Coniglio, and Mariano Ceccato. 2020. QSynth - A Program Synthesis based approach for Binary Code
+   Deobfuscation. Proceedings 2020 Workshop on Binary Analysis Research (2020).
+Leonardo De Moura and Nikolaj Bjorner. 2008. Z3: An Efficient SMT Solver. In Proceedings of the Theory and Practice of
+   Software, 14th International Conference on Tools and Algorithms for the Construction and Analysis of Systems (Budapest,
+   Hungary) (TACAS’08). Springer-Verlag, Berlin, Heidelberg, 337–340.
+Aleksandar S. Dimovski and Axel Legay. 2020. Computing Program Reliability Using Forward-Backward Precondition
+   Analysis and Model Counting. In Fundamental Approaches to Software Engineering, Heike Wehrheim and Jordi Cabot
+   (Eds.). Springer International Publishing, Cham, 182–202.
+Kyung-Goo Doh, Hyunha Kim, and David A. Schmidt. 2009. Abstract Parsing: Static Analysis of Dynamically Generated
+   String Output Using LR-Parsing Technology. In Proceedings of the 16th International Symposium on Static Analysis (Los
+   Angeles, CA) (SAS ’09). Springer-Verlag, Berlin, Heidelberg, 256–272. https://doi.org/10.1007/978-3-642-03237-0_18
+Yu Feng, Ruben Martins, Jacob Van Geffen, Isil Dillig, and Swarat Chaudhuri. 2017. Component-Based Synthesis of
+   Table Consolidation and Transformation Tasks from Examples. SIGPLAN Not. 52, 6 (jun 2017), 422–436. https:
+   //doi.org/10.1145/3140587.3062351
+Graeme Gange, Jorge A. Navas, Peter Schachte, Harald Sondergaard, and Peter J. Stuckey. 2015. Interval Analysis and
+   Machine Arithmetic: Why Signedness Ignorance Is Bliss. ACM Trans. Program. Lang. Syst. 37, 1, Article 1 (jan 2015),
+   35 pages. https://doi.org/10.1145/2651360
+Philippe Granger. 1989. Static analysis of arithmetical congruences. International Journal of Computer Mathematics 30, 3-4
+   (1989), 165–190. https://doi.org/10.1080/00207168908803778 arXiv:https://doi.org/10.1080/00207168908803778
+Philippe Granger. 1992. Improving the results of static analyses of programs by local decreasing iterations. In Foundations
+   of Software Technology and Theoretical Computer Science, Rudrapatna Shyamasundar (Ed.). Springer Berlin Heidelberg,
+   Berlin, Heidelberg, 68–79.
+Sumit Gulwani. 2011. Automating String Processing in Spreadsheets Using Input-output Examples. In Proceedings of the 38th
+   Annual ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages (Austin, Texas, USA) (POPL ’11).
+Zheng Guo, Michael James, David Justo, Jiaxiao Zhou, Ziteng Wang, Ranjit Jhala, and Nadia Polikarpova. 2019. Program
+   Synthesis by Type-Guided Abstraction Refinement. Proc. ACM Program. Lang. 4, POPL, Article 12 (dec 2019), 28 pages.
+   https://doi.org/10.1145/3371080
+
+
+                                    Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+174:24                                                                     Yongho Yoon, Woosuk Lee, and Kwangkeun Yi
+
+
+Qinheping Hu, John Cyphert, Loris D’Antoni, and Thomas Reps. 2020. Exact and Approximate Methods for Proving
+   Unrealizability of Syntax-Guided Synthesis Problems. In Proceedings of the 41st ACM SIGPLAN Conference on Programming
+   Language Design and Implementation (London, UK) (PLDI 2020). Association for Computing Machinery, New York, NY,
+   USA, 1128–1142. https://doi.org/10.1145/3385412.3385979
+Jeevana Priya Inala, Rohit Singh, and Armando Solar-Lezama. 2016. Synthesis of Domain Specific CNF Encoders for
+   Bit-Vector Solvers. In Theory and Applications of Satisfiability Testing – SAT 2016, Nadia Creignou and Daniel Le Berre
+   (Eds.). Springer International Publishing, Cham, 302–320.
+Bishoksan Kafle and John P. Gallagher. 2015. Constraint Specialisation in Horn Clause Verification. In Proceedings of the
+   2015 Workshop on Partial Evaluation and Program Manipulation (Mumbai, India) (PEPM ’15). Association for Computing
+   Machinery, New York, NY, USA, 85–90. https://doi.org/10.1145/2678015.2682544
+Somasundaram Kanagasabapathi and M. G. Thushara. 2020. Forward and Backward Static Analysis for Critical numerical
+   accuracy in Floating Point Programs. Comput. Sci. 21 (2020).
+Se-Won Kim and Kwang-Moo Choe. 2011. String Analysis as an Abstract Interpretation. In Verification, Model Checking, and
+   Abstract Interpretation, Ranjit Jhala and David Schmidt (Eds.). Springer Berlin Heidelberg, Berlin, Heidelberg, 294–308.
+Dileep Kini and Sumit Gulwani. 2015. FlashNormalize: Programming by Examples for Text Normalization. In Proceedings of
+   the 24th International Conference on Artificial Intelligence (Buenos Aires, Argentina) (IJCAI’15). AAAI Press, 776–783.
+Lies Lakhdar-Chaouch, Bertrand Jeannet, and Alain Girault. 2011. Widening with Thresholds for Programs with Complex
+   Control Graphs. In Automated Technology for Verification and Analysis, Tevfik Bultan and Pao-Ann Hsiung (Eds.). Springer
+   Berlin Heidelberg, Berlin, Heidelberg, 492–502.
+DongKwon Lee, Woosuk Lee, Hakjoo Oh, and Kwangkeun Yi. 2020. Optimizing Homomorphic Evaluation Circuits by
+   Program Synthesis and Term Rewriting. In Proceedings of the 41st ACM SIGPLAN Conference on Programming Language
+   Design and Implementation (London, UK) (PLDI 2020). Association for Computing Machinery, New York, NY, USA,
+   503–518. https://doi.org/10.1145/3385412.3385996
+Woosuk Lee. 2021. Combining the top-down propagation and bottom-up enumeration for inductive program synthesis.
+   Proceedings of the ACM on Programming Languages 5, POPL (2021), 1–28.
+Woosuk Lee, Kihong Heo, Rajeev Alur, and Mayur Naik. 2018. Accelerating Search-Based Program Synthesis Using
+   Learned Probabilistic Models. In Proceedings of the 39th ACM SIGPLAN Conference on Programming Language Design
+   and Implementation (Philadelphia, PA, USA) (PLDI 2018). Association for Computing Machinery, New York, NY, USA,
+   436–449. https://doi.org/10.1145/3192366.3192410
+Damien Massé. 2001. Combining Forward And Backward Analyses of Temporal Properties. In Programs as Data Objects,
+   Olivier Danvy and Andrzej Filinski (Eds.). Springer Berlin Heidelberg, Berlin, Heidelberg, 103–116.
+Grégoire Menguy, Sébastien Bardin, Richard Bonichon, and Cauim de Souza Lima. 2021. Search-Based Local Black-Box
+   Deobfuscation: Understand, Improve and Mitigate. In Proceedings of the 2021 ACM SIGSAC Conference on Computer and
+   Communications Security (Virtual Event, Republic of Korea) (CCS ’21). Association for Computing Machinery, New York,
+   NY, USA, 2513–2525. https://doi.org/10.1145/3460120.3485250
+Antoine Miné. 2006. The octagon abstract domain. Higher-Order and Symbolic Computation 19, 1 (2006), 31–100. https:
+   //doi.org/10.1007/s10990-006-8609-1
+Antoine Miné. 2012. Abstract domains for bit-level machine integer and floating-point operations. In WING’12 - 4th
+   International Workshop on invariant Generation. Manchester, United Kingdom, 16. https://hal.archives-ouvertes.fr/hal-
+   00748094
+Manasij Mukherjee, Pranav Kant, Zhengyang Liu, and John Regehr. 2020. Dataflow-Based Pruning for Speeding up
+   Superoptimization. Proc. ACM Program. Lang. 4, OOPSLA, Article 177 (nov 2020), 24 pages. https://doi.org/10.1145/3428245
+Shankara Pailoor, Yuepeng Wang, Xinyu Wang, and Isil Dillig. 2021. Synthesizing Data Structure Refinements from Integrity
+   Constraints. In Proceedings of the 42nd ACM SIGPLAN International Conference on Programming Language Design and
+   Implementation (Virtual, Canada) (PLDI 2021). Association for Computing Machinery, New York, NY, USA, 574–587.
+   https://doi.org/10.1145/3453483.3454063
+Past SyGuS Competition. 2020. https://sygus.org/comp/.
+Nadia Polikarpova, Ivan Kuraj, and Armando Solar-Lezama. 2016. Program Synthesis from Polymorphic Refinement
+   Types. In Proceedings of the 37th ACM SIGPLAN Conference on Programming Language Design and Implementation
+   (Santa Barbara, CA, USA) (PLDI ’16). Association for Computing Machinery, New York, NY, USA, 522–538. https:
+   //doi.org/10.1145/2908080.2908093
+John Regehr and Usit Duongsaa. 2006. Deriving Abstract Transfer Functions for Analyzing Embedded Software. In
+   Proceedings of the 2006 ACM SIGPLAN/SIGBED Conference on Language, Compilers, and Tool Support for Embedded
+   Systems (Ottawa, Ontario, Canada) (LCTES ’06). Association for Computing Machinery, New York, NY, USA, 34–43.
+   https://doi.org/10.1145/1134650.1134657
+Xavier Rival. 2005. Understanding the Origin of Alarms in Astrée. In Static Analysis, Chris Hankin and Igor Siveroni (Eds.).
+   Springer Berlin Heidelberg, Berlin, Heidelberg, 303–319.
+
+
+Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+                                                                                                                         174:25
+
+
+Xavier Rival and Kwangkeun Yi. 2020. Introduction to Static Analysis: an Abstract Interpretation Perspective. The MIT Press.
+Reudismam Rolim, Gustavo Soares, Loris D’Antoni, Oleksandr Polozov, Sumit Gulwani, Rohit Gheyi, Ryo Suzuki, and Björn
+   Hartmann. 2017. Learning Syntactic Program Transformations from Examples. In Proceedings of the 39th International
+   Conference on Software Engineering (Buenos Aires, Argentina) (ICSE’17). IEEE Press, 404–415. https://doi.org/10.1109/
+   ICSE.2017.44
+Tushar Sharma and Thomas Reps. 2017. Sound Bit-Precise Numerical Domains. In Verification, Model Checking, and Abstract
+   Interpretation, Ahmed Bouajjani and David Monniaux (Eds.). Springer International Publishing, Cham, 500–520.
+Axel Simon and Andy King. 2007. Taming the Wrapping of Integer Arithmetic. In Static Analysis, Hanne Riis Nielson and
+   Gilberto Filé (Eds.). Springer Berlin Heidelberg, Berlin, Heidelberg, 121–136.
+Gagandeep Singh, Markus Püschel, and Martin Vechev. 2017. Fast Polyhedra Abstract Domain. In Proceedings of the 44th
+   ACM SIGPLAN Symposium on Principles of Programming Languages (Paris, France) (POPL ’17). Association for Computing
+   Machinery, New York, NY, USA, 46–59. https://doi.org/10.1145/3009837.3009885
+Rishabh Singh and Armando Solar-Lezama. 2011. Synthesizing Data Structure Manipulations from Storyboards. In
+   Proceedings of the 19th ACM SIGSOFT Symposium and the 13th European Conference on Foundations of Software En-
+   gineering (Szeged, Hungary) (ESEC/FSE ’11). Association for Computing Machinery, New York, NY, USA, 289–299.
+   https://doi.org/10.1145/2025113.2025153
+Sunbeom So and Hakjoo Oh. 2017. Synthesizing Imperative Programs from Examples Guided by Static Analysis. In Static
+   Analysis, Francesco Ranzato (Ed.). Springer International Publishing, Cham, 364–381.
+Armando Solar-Lezama, Liviu Tancau, Rastislav Bodik, Sanjit Seshia, and Vijay Saraswat. 2006. Combinatorial Sketching for
+   Finite Programs. In Proceedings of the 12th International Conference on Architectural Support for Programming Languages
+   and Operating Systems (San Jose, California, USA) (ASPLOS XII).
+Ma[rtin Vechev, Eran Yahav, and Greta Yorsh. 2010. Abstraction-Guided Synthesis of Synchronization. In Proceedings of the
+   37th Annual ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages (Madrid, Spain) (POPL ’10).
+   Association for Computing Machinery, New York, NY, USA, 327–338. https://doi.org/10.1145/1706299.1706338
+Chenglong Wang, Alvin Cheung, and Rastislav Bodik. 2017a. Synthesizing Highly Expressive SQL Queries from Input-Output
+   Examples. In Proceedings of the 38th ACM SIGPLAN Conference on Programming Language Design and Implementation
+   (Barcelona, Spain) (PLDI 2017). Association for Computing Machinery, New York, NY, USA, 452–466. https://doi.org/10.
+   1145/3062341.3062365
+Xinyu Wang, Greg Anderson, Isil Dillig, and K. L. McMillan. 2018. Learning Abstractions for Program Synthesis. In Computer
+   Aided Verification, Hana Chockler and Georg Weissenbacher (Eds.). Springer International Publishing, Cham, 407–426.
+Xinyu Wang, Isil Dillig, and Rishabh Singh. 2017b. Program Synthesis Using Abstraction Refinement. Proc. ACM Program.
+   Lang. 2, POPL, Article 63 (Dec. 2017), 30 pages. https://doi.org/10.1145/3158151
+Henry S. Warren. 2012. Hacker’s Delight (2nd ed.). Addison-Wesley Professional.
+Banghu Yin. 2019. Property Oriented Verification via Iterative Abstract Interpretation. In Proceedings of the 41st International
+   Conference on Software Engineering: Companion Proceedings (Montreal, Quebec, Canada) (ICSE ’19). IEEE Press, 162–164.
+   https://doi.org/10.1109/ICSE-Companion.2019.00067
+Banghu Yin, Liqian Chen, Jiangchao Liu, Ji Wang, and Patrick Cousot. 2019. Verifying Numerical Programs via Iterative
+   Abstract Testing. In Static Analysis: 26th International Symposium, SAS 2019, Porto, Portugal, October 8–11, 2019, Proceedings
+   (Porto, Portugal). Springer-Verlag, Berlin, Heidelberg, 247–267. https://doi.org/10.1007/978-3-030-32304-2_13
+Yongho Yoon, Woosuk Lee, and Kwangkeun Yi. 2023. Artifact of Inductive Program Synthesis via Iterative Forward-Backward
+   Abstract Interpretation. https://doi.org/10.5281/zenodo.7816533
+
+Received 2022-11-10; accepted 2023-03-31
+
+
+
+
+                                      Proc. ACM Program. Lang., Vol. 7, No. PLDI, Article 174. Publication date: June 2023.
+
