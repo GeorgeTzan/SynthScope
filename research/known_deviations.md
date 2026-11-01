@@ -7,3 +7,13 @@
 
 ## Audit decision (2026-11-01)
 Author chose "derive and test": missing underlying-domain operators are written from the paper/Simba text plus textbook interval and bitwise abstract interpretation, each proven sound by exhaustive small-width tests. Precision may differ from the authors. The suffix-domain string operators are derived as duals of the prefix operators. The meta-analysis (paper core) is fully specified and implemented exactly.
+
+## Bitvector underlying domain (Task 5)
+
+Reduced product of known-bits, unsigned interval, signed interval (Simba §4.2) with iterated reduction.
+Derived (not copied) operators; all proven sound by exhaustive tests at widths 1-3 plus mutation checks.
+Precision gaps versus the authors' tool (all sound, may prune less):
+- bvsdiv, bvudiv (bitwise part), bvashr backward, shift-amount backward, bvurem backward except msb case: no refinement.
+- bvmul backward: only for odd constant operand (modular inverse) and zero constant; no trailing-zero reasoning.
+- Signed intervals crossing the sign boundary are over-approximated by the full range.
+- Shift semantics follow SMT-LIB (amounts >= width), not "mod width" as the Simba text writes for abstract shifts.
