@@ -25,3 +25,10 @@ export function formatTick(value: number, step: number): string {
   const decimals = step >= 1 ? 0 : Math.min(6, Math.ceil(-Math.log10(step)));
   return value.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
+
+/** SyGuS bitvector literals (#b1011, #x0f) as decimal for display; other values pass through unchanged. */
+export function formatValue(v: string): { main: string; raw: string | null } {
+  if (/^#b[01]+$/.test(v)) return { main: BigInt(`0b${v.slice(2)}`).toString(), raw: v };
+  if (/^#x[0-9a-fA-F]+$/.test(v)) return { main: BigInt(`0x${v.slice(2)}`).toString(), raw: v };
+  return { main: v, raw: null };
+}

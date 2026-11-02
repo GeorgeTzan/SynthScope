@@ -9,10 +9,10 @@
   import GrammarPanel from '$lib/components/GrammarPanel.svelte';
   import ProblemDialog from '$lib/components/ProblemDialog.svelte';
   import ProgressChart from '$lib/components/ProgressChart.svelte';
-  import Rail from '$lib/components/Rail.svelte';
   import Statistics from '$lib/components/Statistics.svelte';
   import SynthLog from '$lib/components/SynthLog.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
+  import { toPythonFunction } from '$lib/python';
   import { AppState } from '$lib/state/app.svelte';
   import { RunState } from '$lib/state/run.svelte';
 
@@ -21,6 +21,12 @@
   let editing = $state(false);
 
   let signature = $derived(app.parsed ? `${app.parsed.functionName}(${app.parsed.params.map((p) => p.name).join(', ')})` : 'f(x)');
+  let python = $derived.by(() => {
+    const p = app.parsed;
+    if (!run.best || !p || run.best.includes('□')) return null;
+    const bits = /BitVec (\d+)/.exec(p.returnSort);
+    return toPythonFunction(run.best, p.functionName, p.params.map((q) => q.name), p.domain === 'bitvector' ? 'bv' : 'str', bits ? Number(bits[1]) : null);
+  });
   let depthById = $derived(new Map(run.candidates.map((c) => [c.id, c.depth])));
 
   onMount(() => void app.loadLists());
@@ -39,7 +45,6 @@
 <div class="shell">
   <TopBar {app} {run} onrun={start} onreset={reset} />
   <div class="body">
-    <Rail onedit={() => (editing = true)} />
     <main>
       {#if app.loadError}<p class="banner" role="alert">{app.loadError}</p>{/if}
       {#if run.error}<p class="banner" role="alert">{run.error}</p>{/if}
@@ -50,7 +55,7 @@
       <div class="mid">
         <CenterTabs {run} />
         <div class="pair">
-          <CandidateProgram program={run.current ?? run.best} />
+          <CandidateProgram program={run.status === 'solved' ? (run.best ?? run.current) : (run.current ?? run.best)} />
           <AbstractState analysis={run.analysis} />
         </div>
         <div class="pair lower">
@@ -60,7 +65,7 @@
       </div>
       <div class="right">
         <SynthLog entries={run.events} status={run.status} elapsed={run.elapsed} depthOf={(id) => depthById.get(Number(id)) ?? 0} />
-        <BestCandidate program={run.best} status={run.status} {signature} />
+        <BestCandidate program={run.best} status={run.status} {signature} {python} />
         <Statistics explored={run.explored} pruned={run.pruned} elapsed={run.elapsed} maxDepth={run.maxDepth} nodes={run.nodes} />
       </div>
     </main>
@@ -70,7 +75,7 @@
 
 <style>
   .shell { min-height: 100vh; display: flex; flex-direction: column; }
-  .body { display: grid; grid-template-columns: auto 1fr; flex: 1; min-height: 0; }
+  .body { display: grid; grid-template-columns: 1fr; flex: 1; min-height: 0; }
   main { display: grid; grid-template-columns: minmax(17rem, 21rem) minmax(0, 1fr) minmax(19rem, 24rem); gap: 0.9rem; padding: 0.9rem; align-items: start; }
   .left, .mid, .right { display: grid; gap: 0.9rem; min-width: 0; align-content: start; }
   .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; align-items: start; }

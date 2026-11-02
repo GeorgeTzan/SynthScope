@@ -1,3 +1,5 @@
+import { formatValue } from './format';
+import { opName } from './opnames';
 import type { Tree } from './types';
 
 export interface LaidOutNode {
@@ -22,7 +24,7 @@ const COL_GAP = 28;
 const PAD = 24;
 
 function nodeWidth(t: Tree): number {
-  const text = t.hole ? `□ ${t.hole}` : t.label;
+  const text = t.hole ? `□ ${t.hole}` : t.children.length > 0 ? opName(t.label).name : formatValue(t.label).main;
   const icon = t.children.length > 0 ? 28 : 0; // operators carry a cube icon before the label
   return Math.max(56, 28 + icon + text.length * 9.5);
 }

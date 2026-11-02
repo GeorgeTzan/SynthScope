@@ -1,23 +1,9 @@
+import { DEFAULT_EXAMPLE, EXAMPLES } from '../examples';
 import { parseProblem } from '../problem';
 import type { RunConfig } from '../types';
 
-export const SAMPLES = {
-  bitvector: `(set-logic BV)
-(synth-fun f ((x (BitVec 4))) (BitVec 4)
-  ((Start (BitVec 4) (x #x1 (bvand Start Start) (bvadd Start Start) (bvnot Start)))))
-(constraint (= (f #b1011) #b1000))
-(constraint (= (f #b0111) #b0000))
-(check-synth)
-`,
-  string: `(set-logic SLIA)
-(synth-fun f ((first String) (last String)) String
-  ((Start String (first last "." (str.++ Start Start Start) (str.at Start Idx)))
-   (Idx Int (0 1))))
-(constraint (= (f "Jan" "Kotas") "J.K"))
-(constraint (= (f "Marie" "Curie") "M.C"))
-(check-synth)
-`
-} as const;
+const example = (id: string): string => EXAMPLES.find((e) => e.id === id)?.text ?? '';
+export const SAMPLES = { bitvector: example('square'), string: example('initials') } as const;
 
 export interface ResultRow {
   corpus: string;
@@ -32,7 +18,7 @@ export interface ResultRow {
 /** Problem text, run configuration and the benchmark picker. The live run itself lives in RunState. */
 export class AppState {
   problem = $state<string>(SAMPLES.bitvector);
-  selected = $state('sample:bitvector');
+  selected = $state(`example:${DEFAULT_EXAMPLE}`);
   config = $state<RunConfig>({ policy: 'hope', max_holes: 3, max_nodes: 50000, timeout_s: 30, seed: 0 });
   corpora = $state<Record<string, string[]>>({});
   results = $state<ResultRow[]>([]);
@@ -48,9 +34,8 @@ export class AppState {
   }
 
   setDomain(domain: 'bitvector' | 'string'): void {
-    this.problem = SAMPLES[domain];
-    this.selected = `sample:${domain}`;
-    this.loadError = null;
+    const first = EXAMPLES.find((e) => e.domain === domain);
+    if (first) this.pickExample(first.id);
   }
 
   async loadLists(): Promise<void> {
@@ -64,10 +49,18 @@ export class AppState {
     }
   }
 
-  /** `sample:bitvector`, `sample:string`, or `corpus/file.sl`. */
+  pickExample(id: string): void {
+    const found = EXAMPLES.find((e) => e.id === id);
+    if (!found) return;
+    this.problem = found.text;
+    this.selected = `example:${id}`;
+    this.loadError = null;
+  }
+
+  /** `example:<id>`, or `corpus/file.sl`. */
   async select(value: string): Promise<void> {
-    if (value.startsWith('sample:')) {
-      this.setDomain(value === 'sample:string' ? 'string' : 'bitvector');
+    if (value.startsWith('example:')) {
+      this.pickExample(value.slice('example:'.length));
       return;
     }
     const [corpus, name] = value.split('/');

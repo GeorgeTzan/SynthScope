@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ParsedProblem } from '../problem';
+  import { formatValue } from '../format';
   import Icon from './Icon.svelte';
   import Panel from './Panel.svelte';
 
@@ -32,9 +33,9 @@
           {#each problem.examples as ex, i (i)}
             <tr>
               <td class="n">{i + 1}</td>
-              <td class="mono" title={ex.inputs.join(', ')}>{ex.inputs.join(', ')}</td>
+              <td class="mono" title={ex.inputs.map((v) => formatValue(v).raw ?? v).join(', ')}>{ex.inputs.map((v) => formatValue(v).main).join(', ')}</td>
               <td class="arrow"><Icon name="arrow" size={14} /></td>
-              <td class="mono out" title={ex.output}>{ex.output}</td>
+              <td class="mono out" title={formatValue(ex.output).raw ?? ex.output}>{formatValue(ex.output).main}</td>
             </tr>
           {/each}
         </tbody>

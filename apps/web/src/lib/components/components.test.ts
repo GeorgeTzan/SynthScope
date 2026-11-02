@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { parseProblem } from '../problem';
 import { SAMPLES } from '../state/app.svelte';
@@ -9,6 +9,7 @@ import BestCandidate from './BestCandidate.svelte';
 import ExamplesPanel from './ExamplesPanel.svelte';
 import GrammarPanel from './GrammarPanel.svelte';
 import Statistics from './Statistics.svelte';
+import ProblemDialog from './ProblemDialog.svelte';
 import SynthLog from './SynthLog.svelte';
 
 const ev = (seq: number, kind: string, payload: Record<string, unknown>): SynthEvent => ({
@@ -30,8 +31,9 @@ describe('AstGraph', () => {
   });
   it('draws operators, leaves and holes from the engine program text', () => {
     render(AstGraph, { program: '(bvadd □:S (bvnot x))', ranks: null });
-    expect(screen.getByText('bvadd')).toBeTruthy();
-    expect(screen.getByText('bvnot')).toBeTruthy();
+    expect(screen.getByText('add')).toBeTruthy();
+    expect(screen.getByText('bitwise not')).toBeTruthy();
+    expect(screen.getByText('bvadd')).toBeTruthy(); // raw operator kept as a caption
     expect(screen.getByText('x')).toBeTruthy();
     expect(screen.getByLabelText('Holes')).toBeTruthy();
   });
@@ -54,7 +56,7 @@ describe('ExamplesPanel and GrammarPanel', () => {
   });
   it('lists operators and variables of the grammar', () => {
     render(GrammarPanel, { problem });
-    expect(screen.getByText('bvand')).toBeTruthy();
+    expect(screen.getByText('bvmul')).toBeTruthy();
     expect(screen.getByText(/Operators \(/)).toBeTruthy();
   });
   it('handles a missing problem', () => {
@@ -80,8 +82,9 @@ describe('SynthLog', () => {
 
 describe('BestCandidate, Statistics, BenchmarkSummary', () => {
   it('shows the solution call', () => {
-    render(BestCandidate, { program: '(bvnot x)', status: 'solved', signature: 'f(x)' });
+    render(BestCandidate, { program: '(bvnot x)', status: 'solved', signature: 'f(x)', python: 'def f(x):\n    return ~x & 15' });
     expect(screen.getByText('bvnot')).toBeTruthy();
+    expect(screen.getByLabelText('Python').textContent).toContain('def f(x)');
   });
   it('shows counters and the pruned share', () => {
     render(Statistics, { explored: 10, pruned: 30, elapsed: 1.5, maxDepth: 3, nodes: 40 });
@@ -96,5 +99,30 @@ describe('BestCandidate, Statistics, BenchmarkSummary', () => {
     });
     expect(screen.getByText('String (Duet)')).toBeTruthy();
     expect(screen.getByText('HOPE, 1 hole')).toBeTruthy();
+  });
+});
+
+describe('ProblemDialog numbers tab', () => {
+  beforeAll(() => {
+    // jsdom has no modal dialogs
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    };
+  });
+  it('offers the number inputs with the squares example prefilled', () => {
+    render(ProblemDialog, { open: true, problem: '' });
+    expect(screen.getByRole('tab', { name: 'Numbers' })).toBeTruthy();
+    expect((screen.getByRole('checkbox', { name: /bvmul/ }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole('textbox', { name: /examples/i }) as HTMLTextAreaElement).value).toContain('3 -> 9');
+  });
+  it('explains a bad example instead of closing', async () => {
+    render(ProblemDialog, { open: true, problem: '' });
+    const box = screen.getByRole('textbox', { name: /examples/i }) as HTMLTextAreaElement;
+    await fireEvent.input(box, { target: { value: '2 -> x' } });
+    await fireEvent.click(screen.getByRole('button', { name: /use these examples/i }));
+    expect(screen.getByRole('alert').textContent).toMatch(/Example 1/);
   });
 });

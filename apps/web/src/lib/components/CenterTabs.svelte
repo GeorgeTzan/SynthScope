@@ -16,7 +16,7 @@
     { id: 'meta', label: 'Meta-analysis', icon: 'zap' }
   ];
   let tab = $state('ast');
-  let program = $derived(run.current ?? run.best);
+  let program = $derived(run.status === 'solved' ? (run.best ?? run.current) : (run.current ?? run.best));
   let holes = $derived(buildView(program, run.ranks).holes);
 
   function key(e: KeyboardEvent) {

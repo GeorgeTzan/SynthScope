@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { RunConfig, SynthEvent } from '../types';
 import { RunState } from './run.svelte';
 
@@ -217,5 +217,24 @@ describe('RunState derived views', () => {
     expect(s.elapsed).toBe(0);
     expect(s.candidates).toHaveLength(1);
     expect(s.candidates[0].parent).toBeNull();
+  });
+
+  it('batches bursts of events into one update when batching is on', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetch = (async () => ({ ok: true, status: 200, json: async () => ({ run_id: 'r1' }) })) as unknown as typeof globalThis.fetch;
+      const state = new RunState({ fetch, WebSocket: FakeSocket as unknown as typeof WebSocket, batchMs: 50 });
+      await state.start('p', cfg);
+      FakeSocket.last.push(ev(0, 'candidate_expanded', { program: '(a)' }));
+      FakeSocket.last.push(ev(1, 'candidate_expanded', { program: '(b)' }));
+      expect(state.explored).toBe(0);
+      vi.advanceTimersByTime(60);
+      expect(state.explored).toBe(2);
+      FakeSocket.last.push(ev(2, 'run_finished', { status: 'solved', nodes: 3 }));
+      FakeSocket.last.close();
+      expect(state.status).toBe('solved');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

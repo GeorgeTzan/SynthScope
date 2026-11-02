@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { EXAMPLES } from '../examples';
   import type { AppState } from '../state/app.svelte';
   import type { RunState } from '../state/run.svelte';
   import Icon from './Icon.svelte';
@@ -42,10 +43,19 @@
   <div class="group">
     <label class="lab" for="corpus">Benchmark:</label>
     <select id="corpus" value={corpus} onchange={(e) => pickCorpus(e.currentTarget.value)} disabled={running}>
-      <option value="">Built-in samples</option>
+      <option value="">Built-in examples</option>
       {#each corpusNames as c (c)}<option value={c}>{c} ({app.corpora[c].length})</option>{/each}
     </select>
-    {#if corpus}
+    {#if !corpus}
+      <select aria-label="Example" value={EXAMPLES.find((x) => x.text === app.problem)?.id ?? ''} onchange={(e) => app.pickExample(e.currentTarget.value)} disabled={running}>
+        {#if !EXAMPLES.some((x) => x.text === app.problem)}<option value="" disabled>Custom problem</option>{/if}
+        {#each ['bitvector', 'string'] as d (d)}
+          <optgroup label={d === 'bitvector' ? 'Numbers (bitvector)' : 'Text (string)'}>
+            {#each EXAMPLES.filter((x) => x.domain === d) as x (x.id)}<option value={x.id}>{x.title}</option>{/each}
+          </optgroup>
+        {/each}
+      </select>
+    {:else}
       <select aria-label="Problem file" value={app.selected.split('/')[1]} onchange={(e) => void app.select(`${corpus}/${e.currentTarget.value}`)} disabled={running}>
         {#each app.corpora[corpus] as f (f)}<option value={f}>{f}</option>{/each}
       </select>

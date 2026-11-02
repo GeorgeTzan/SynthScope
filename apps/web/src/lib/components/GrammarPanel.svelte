@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { ParsedProblem } from '../problem';
+  import { opName } from '../opnames';
+  import { formatValue } from '../format';
   import Icon from './Icon.svelte';
   import Panel from './Panel.svelte';
 
@@ -18,7 +20,7 @@
           {#each g.operators as op (`${op.result}:${op.name}:${op.args.join()}`)}
             <li>
               <span class="f">f</span>
-              <span class="mono sig"><span class="name">{op.name}</span>({op.args.join(', ')})</span>
+              <span class="mono sig" title={opName(op.name).name}><span class="name">{op.name}</span>({op.args.join(', ')})</span>
               <span class="mono type" title={`${op.args.join(' × ')} → ${op.result}`}>→ {op.result}</span>
             </li>
           {/each}
@@ -28,7 +30,7 @@
         <summary><Icon name="chevron" size={15} /> Constants ({g.constants.length})</summary>
         <ul class="chips">
           {#each g.constants as c (`${c.nonterminal}:${c.value}`)}
-            <li class="mono chip" title={`in ${c.nonterminal}`}>{c.value}</li>
+            <li class="mono chip" title={formatValue(c.value).raw ?? `in ${c.nonterminal}`}>{formatValue(c.value).main}</li>
           {/each}
         </ul>
       </details>

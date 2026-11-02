@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { formatValue } from '../format';
   import { buildView } from '../holes';
+  import { opName } from '../opnames';
   import type { LaidOutNode } from '../layout';
   import type { HoleRanks } from '../types';
   import Icon from './Icon.svelte';
@@ -17,11 +19,14 @@
   let manual = $state(1);
   let showHoles = $state(true);
 
+  // the Holes card floats over the right edge: keep the graph clear of it
+  let reserve = $derived(showHoles && width > 640 ? 280 : 0);
+
   let scale = $derived.by(() => {
     const l = view.layout;
     if (!l) return 1;
     if (!fit) return manual;
-    return Math.max(0.35, Math.min(1.15, (width - 24) / l.width, (height - 24) / l.height));
+    return Math.max(0.35, Math.min(1.15, (width - 24 - reserve) / l.width, (height - 24) / l.height));
   });
 
   const holeAt = (n: LaidOutNode) => view.holes.find((h) => h.path.join('.') === n.path.join('.'));
@@ -59,7 +64,7 @@
       <button aria-label="Reset zoom" onclick={() => { fit = false; manual = 1; }}><Icon name="target" size={16} /></button>
     </div>
 
-    <div class="scroller">
+    <div class="scroller" style:padding-right={`${reserve + 8}px`}>
       <svg
         width={view.layout.width * scale}
         height={view.layout.height * scale}
@@ -101,10 +106,12 @@
                 <path d="M12 1.8 21 6.9v10.2L12 22.2 3 17.1V6.9z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
                 <path d="M3 6.9 12 12l9-5.1M12 12v10.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
               </g>
-              <text x={n.w / 2 + 11} y={n.h / 2 + 6} text-anchor="middle" class="op-text">{n.label}</text>
+              <title>{`${n.label}: ${opName(n.label).name}`}</title>
+              <text x={n.w / 2 + 11} y={n.h / 2 + 6} text-anchor="middle" class="op-text">{opName(n.label).name}</text>
+              {#if opName(n.label).name !== n.label}<text x={n.w / 2} y="-7" text-anchor="middle" class="nt">{n.label}</text>{/if}
             {:else}
               <rect width={n.w} height={n.h} rx="12" class="box" filter="url(#glow)" fill="url(#opfill)" />
-              <text x={n.w / 2} y={n.h / 2 + 6} text-anchor="middle" class="leaf-text">{n.label}</text>
+              <text x={n.w / 2} y={n.h / 2 + 6} text-anchor="middle" class="leaf-text">{formatValue(n.label).main}</text>
             {/if}
           </g>
         {/each}

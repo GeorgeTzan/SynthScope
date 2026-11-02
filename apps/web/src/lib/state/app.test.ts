@@ -10,20 +10,29 @@ function fakeFetch(routes: Record<string, unknown>, calls: string[] = []) {
 }
 
 describe('AppState', () => {
-  it('starts on the bitvector sample and parses it', () => {
+  it('starts on the squares example and parses it', () => {
     const app = new AppState(fakeFetch({}));
     expect(app.problem).toBe(SAMPLES.bitvector);
     expect(app.parsed?.domain).toBe('bitvector');
-    expect(app.parsed?.examples).toHaveLength(2);
+    expect(app.parsed?.examples).toHaveLength(3);
   });
 
   it('switches domain by loading that domain’s sample', () => {
     const app = new AppState(fakeFetch({}));
     app.setDomain('string');
     expect(app.parsed?.domain).toBe('string');
-    expect(app.selected).toBe('sample:string');
+    expect(app.selected).toBe('example:initials');
     app.setDomain('bitvector');
     expect(app.problem).toBe(SAMPLES.bitvector);
+  });
+
+  it('loads any built-in example by id and ignores unknown ids', async () => {
+    const app = new AppState(fakeFetch({}));
+    await app.select('example:greeting');
+    expect(app.selected).toBe('example:greeting');
+    expect(app.parsed?.functionName).toBe('f');
+    app.pickExample('nope');
+    expect(app.selected).toBe('example:greeting');
   });
 
   it('lists corpora and result rows from the API', async () => {

@@ -3,6 +3,8 @@ import type { AnalysisPayload, Candidate, HoleRanks, RunConfig, RunStatus, Synth
 export interface Deps {
   fetch: typeof fetch;
   WebSocket: typeof WebSocket;
+  /** Apply incoming events at most once per this many ms (0: immediately). The browser default is 50. */
+  batchMs?: number;
 }
 
 export interface Point {
@@ -36,12 +38,15 @@ export class RunState {
   private depthOf = new Map<number, number>();
   private ws: WebSocket | null = null;
   private deps: Deps;
+  private queue: SynthEvent[] = [];
+  private timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(deps?: Deps) {
-    this.deps = deps ?? { fetch: globalThis.fetch?.bind(globalThis), WebSocket: globalThis.WebSocket };
+    this.deps = deps ?? { fetch: globalThis.fetch?.bind(globalThis), WebSocket: globalThis.WebSocket, batchMs: 50 };
   }
 
   private reset() {
+    this.dropQueue();
     this.events = [];
     this.status = 'idle';
     this.error = null;
@@ -58,6 +63,28 @@ export class RunState {
     this.analysis = null;
     this.depthOf = new Map();
     this.lastSeq = -1;
+  }
+
+  private dropQueue() {
+    if (this.timer !== null) clearTimeout(this.timer);
+    this.timer = null;
+    this.queue = [];
+  }
+
+  /** Apply everything received so far in one go, so a burst of events renders once instead of once per event. */
+  flush() {
+    if (this.timer !== null) clearTimeout(this.timer);
+    this.timer = null;
+    const batch = this.queue;
+    this.queue = [];
+    for (const e of batch) this.apply(e);
+  }
+
+  private receive(e: SynthEvent) {
+    const ms = this.deps.batchMs ?? 0;
+    if (ms <= 0) return this.apply(e);
+    this.queue.push(e);
+    this.timer ??= setTimeout(() => this.flush(), ms);
   }
 
   /** Apply one event; duplicates and stale sequence numbers (e.g. a replayed history) are ignored. */
@@ -142,9 +169,11 @@ export class RunState {
     const host = globalThis.location?.host ?? 'localhost';
     const ws = new this.deps.WebSocket(`${scheme}://${host}/api/runs/${this.runId}/ws`);
     this.ws = ws;
-    ws.onmessage = (m: MessageEvent | { data: string }) => this.apply(JSON.parse(String(m.data)) as SynthEvent);
+    ws.onmessage = (m: MessageEvent | { data: string }) => this.receive(JSON.parse(String(m.data)) as SynthEvent);
     ws.onclose = () => {
-      if (this.ws === ws && !TERMINAL.has(this.status)) this.status = 'disconnected';
+      if (this.ws !== ws) return;
+      this.flush();
+      if (!TERMINAL.has(this.status)) this.status = 'disconnected';
     };
   }
 
