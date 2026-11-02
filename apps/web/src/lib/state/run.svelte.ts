@@ -51,6 +51,7 @@ export class RunState {
 
   /** Apply one event; duplicates and stale sequence numbers (e.g. a replayed history) are ignored. */
   apply(e: SynthEvent) {
+    if (this.runId !== null && e.run_id !== this.runId) return;
     if (e.seq <= this.lastSeq) return;
     this.lastSeq = e.seq;
     this.events.push(e);
@@ -78,6 +79,9 @@ export class RunState {
   }
 
   replay(events: SynthEvent[]) {
+    this.ws?.close();
+    this.ws = null;
+    this.runId = null;
     this.reset();
     this.status = 'running';
     for (const e of events) this.apply(e);
@@ -85,6 +89,9 @@ export class RunState {
   }
 
   async start(problem: string, config: RunConfig) {
+    this.ws?.close();
+    this.ws = null;
+    this.runId = null;
     this.reset();
     this.status = 'running';
     try {

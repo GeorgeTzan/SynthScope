@@ -75,3 +75,92 @@ def test_non_example_constraint_is_error() -> None:
 (constraint (bvule (f #x1) #x2))"""
     with pytest.raises(SygusError):
         parse_sygus(text)
+
+
+V2 = """(set-logic BV)
+(synth-fun f ((x (_ BitVec 4))) (_ BitVec 4)
+  ((Start (_ BitVec 4)))
+  ((Start (_ BitVec 4) (x #x1 (bvadd Start Start)))))
+(constraint (= (f #x3) #x4))
+"""
+
+
+def test_sygus_v2_grammar_with_predeclaration() -> None:
+    p = parse_sygus(V2)
+    assert p.grammar.start == "Start" and p.width == 4
+    assert {x.label for x in p.grammar.productions_for("Start")} >= {Var("x"), "bvadd"}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "(synth-fun f ((x (_ BitVec n))) (BitVec 4) ((Start (BitVec 4) (x))))\n(constraint (= (f #x1) #x2))",
+        "(synth-fun f ((x (BitVec 4))) (BitVec 4) ())\n(constraint (= (f #x1) #x2))",
+        "(synth-fun f ((x (BitVec 4))) (BitVec 4) ((Start (BitVec 4) (x)))\n(constraint (= (f #x1) #x2))",
+    ],
+)
+def test_bad_input_is_always_a_sygus_error(text: str) -> None:
+    with pytest.raises(SygusError):
+        parse_sygus(text)
+
+
+def test_mixed_bitvector_widths_are_rejected() -> None:
+    text = (
+        "(synth-fun f ((x (BitVec 4))) (BitVec 8) ((Start (BitVec 8) (x))))\n"
+        "(constraint (= (f #x1) #x02))"
+    )
+    with pytest.raises(SygusError, match="width"):
+        parse_sygus(text)
+
+
+COND = """(set-logic BV)
+(synth-fun f ((x (BitVec 8))) (BitVec 8)
+  ((Start (BitVec 8) (x #x00 #x01 (bvadd Start Start) (bvsrem Start Start) (ite StartBool Start Start)))
+   (StartBool Bool (true false (= Start Start) (not StartBool) (and StartBool StartBool) (or StartBool StartBool)))))
+(constraint (= (f #x04) #x05))
+(constraint (= (f #x07) #x00))
+"""
+
+
+def test_conditional_bitvector_grammar_parses() -> None:
+    p = parse_sygus(COND)
+    assert {x.label for x in p.grammar.productions_for("Start")} >= {"ite", "bvsrem"}
+    assert {x.label for x in p.grammar.productions_for("StartBool")} >= {"=", "not", "and", "or"}
+    assert Const(1, "bv") in {x.label for x in p.grammar.productions_for("StartBool")}
+
+
+CHAIN = """(set-logic BV)
+(synth-fun f ((x (BitVec 4))) (BitVec 4)
+  ((Start (BitVec 4) (B)) (B (BitVec 4) (x (bvnot B)))))
+(constraint (= (f #x1) #xe))
+"""
+
+
+def test_chain_rules_are_inlined() -> None:
+    p = parse_sygus(CHAIN)
+    assert {x.label for x in p.grammar.productions_for("Start")} == {Var("x"), "bvnot"}
+    assert next(x for x in p.grammar.productions_for("Start") if x.label == "bvnot").rhs == ("B",)
+
+
+def test_cyclic_chain_rules_terminate() -> None:
+    text = "(synth-fun f ((x (BitVec 4))) (BitVec 4) ((A (BitVec 4) (B x)) (B (BitVec 4) (A))))\n(constraint (= (f #x1) #x1))"
+    p = parse_sygus(text)
+    assert {x.label for x in p.grammar.productions_for("A")} == {Var("x")}
+
+
+BOOL_RET = """(set-logic SLIA)
+(synth-fun f ((s String)) Bool
+  ((Start Bool ((str.prefixof Str Str) (= Num Num)))
+   (Str String (s "a")) (Num Int (0 (str.len Str)))))
+(constraint (= (f "ab") true))
+(constraint (= (f "ba") false))
+"""
+
+
+def test_bool_returning_string_function() -> None:
+    p = parse_sygus(BOOL_RET)
+    assert p.domain == "str"
+    assert [e.output for e in p.examples] == [1, 0]
+    r = search(p, DomainAnalyzer(StringDomain()), LeftmostPolicy(), Budget(5000, None))
+    assert r.status == "solved" and r.program is not None
+    assert satisfies(r.program, p.examples, None)

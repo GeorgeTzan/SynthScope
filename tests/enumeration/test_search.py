@@ -83,3 +83,17 @@ def test_events_monotonic_seq() -> None:
     assert got[0].kind == "search_started" and got[-1].kind == "run_finished"
     assert "solution_found" in {e.kind for e in got}
     assert r.status == "solved"
+
+
+def test_ill_typed_string_grammar_is_unsupported_not_a_crash() -> None:
+    g = Grammar(
+        (
+            Production("S", Var("x")),
+            Production("S", "str.++", ("S", "I")),  # int where a string belongs
+            Production("I", Const(0, "int")),
+        ),
+        "S",
+    )
+    p = Problem(g, (Example({"x": "ab"}, "abab"),), "str", None)
+    r = search(p, NullAnalyzer(), LeftmostPolicy(), Budget(2000, None))
+    assert r.status == "unsupported"

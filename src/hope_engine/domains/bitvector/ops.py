@@ -7,9 +7,10 @@ soundness by exhaustive tests. See research/known_deviations.md.
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Sequence
 
-from hope_engine.concrete.bitvector import BINARY, UNARY, UnsupportedOperator
+from hope_engine.concrete.bitvector import BINARY, BOOL_OPS, UNARY, UnsupportedOperator
 from hope_engine.domains.bitvector.lattice import (
     BV,
     alpha,
@@ -116,7 +117,63 @@ def _forward_shift(op: str, a: BV, b: BV) -> BV:
     return out
 
 
+def _bool_values(a: BV) -> list[int]:
+    return [v for v in (0, 1) if a.contains(v)]
+
+
+def _bool_join(w: int, values: set[int]) -> BV:
+    out = bottom(w)
+    for v in values:
+        out = join(out, alpha(w, v))
+    return out
+
+
+def _forward_bool(w: int, op: str, args: Sequence[BV]) -> BV:
+    """Booleans are the values 0 and 1; enumerating the feasible ones is exact for and/or/not/ite."""
+    if op == "=":
+        if args[0].is_const and args[1].is_const:
+            return alpha(w, int(args[0].k1 == args[1].k1))
+        return _bool_join(w, {0, 1}) if not meet(args[0], args[1]).is_bottom else alpha(w, 0)
+    if op == "ite":
+        out = bottom(w)
+        for c in _bool_values(args[0]):
+            out = join(out, args[1] if c == 1 else args[2])
+        return out
+    fn = BOOL_OPS[op][1]
+    return _bool_join(w, {fn(*vals) for vals in itertools.product(*(_bool_values(a) for a in args))})
+
+
+def _backward_bool(w: int, op: str, res: BV, args: Sequence[BV], i: int) -> BV:
+    """Necessary precondition for argument i of a Boolean operator."""
+    if op == "=":
+        return args[1 - i] if res.contains(1) and not res.contains(0) else top(w)
+    if op == "ite":
+        cond, then, other = args
+        if i == 0:
+            feasible: set[int] = set()
+            if not meet(then, res).is_bottom:
+                feasible.add(1)
+            if not meet(other, res).is_bottom:
+                feasible.add(0)
+            return _bool_join(w, feasible & set(_bool_values(cond)))
+        branch_taken, branch_other = (1, args[2]) if i == 1 else (0, args[1])
+        if branch_taken not in _bool_values(cond):
+            return top(w)  # this branch is never taken, so its value is irrelevant
+        if (1 - branch_taken) in _bool_values(cond) and not meet(branch_other, res).is_bottom:
+            return top(w)  # the other branch may produce the result, so this one is unconstrained
+        return res
+    fn = BOOL_OPS[op][1]
+    feasible = set()
+    others = [_bool_values(a) if j != i else [0, 1] for j, a in enumerate(args)]
+    for vals in itertools.product(*others):
+        if res.contains(fn(*vals)):
+            feasible.add(vals[i])
+    return _bool_join(w, feasible & set(_bool_values(args[i])))
+
+
 def forward(w: int, op: str, args: Sequence[BV]) -> BV:
+    if op in BOOL_OPS and len(args) == BOOL_OPS[op][0]:
+        return bottom(w) if any(a.is_bottom for a in args) else _forward_bool(w, op, args)
     m, half, span = (1 << w) - 1, 1 << (w - 1), 1 << w
     if not ((op in UNARY and len(args) == 1) or (op in BINARY and len(args) == 2)):
         raise UnsupportedOperator(f"{op}/{len(args)}")
@@ -172,8 +229,8 @@ def forward(w: int, op: str, args: Sequence[BV]) -> BV:
     if op == "bvurem":
         hi = min(a.uhi, b.uhi - 1) if b.ulo >= 1 else a.uhi
         return _mk(w, None, (0, hi))
-    if op == "bvsdiv":
-        return top(w)
+    if op in ("bvsdiv", "bvsrem"):
+        return top(w)  # [ponytail: no refined signed division/remainder rule; top is sound]
     return _forward_shift(op, a, b)  # bvshl, bvlshr, bvashr
 
 
@@ -205,6 +262,10 @@ def _backward_shift(op: str, res: BV, a_other_b: BV) -> BV:
 
 def backward(w: int, op: str, res: BV, args: Sequence[BV], i: int) -> BV:
     half = 1 << (w - 1)
+    if op in BOOL_OPS and len(args) == BOOL_OPS[op][0]:
+        if res.is_bottom or any(a.is_bottom for a in args):
+            return bottom(w)
+        return _backward_bool(w, op, res, args, i)
     if not ((op in UNARY and len(args) == 1) or (op in BINARY and len(args) == 2)):
         raise UnsupportedOperator(f"{op}/{len(args)}")
     if res.is_bottom or any(a.is_bottom for a in args):

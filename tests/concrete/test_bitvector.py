@@ -21,6 +21,7 @@ BINARY = {
     "bvudiv": z3.UDiv,
     "bvurem": z3.URem,
     "bvsdiv": lambda a, b: a / b,
+    "bvsrem": z3.SRem,
     "bvshl": lambda a, b: a << b,
     "bvlshr": z3.LShR,
     "bvashr": lambda a, b: a >> b,
@@ -68,3 +69,16 @@ def test_satisfies_checks_all_examples() -> None:
     bad = (Example({"x": 3}, 4), Example({"x": 15}, 1))
     assert satisfies(prog, ok, 4)
     assert not satisfies(prog, bad, 4)
+
+
+def test_bool_ops_and_ite() -> None:
+    x, y = Var("x"), Var("y")
+    env = {"x": 5, "y": 5}
+    assert eval_bv(Op("=", (x, y)), env, 4) == 1
+    assert eval_bv(Op("=", (x, Const(3, "bv"))), env, 4) == 0
+    t, f = Const(1, "bv"), Const(0, "bv")
+    assert eval_bv(Op("not", (t,)), env, 4) == 0
+    assert eval_bv(Op("and", (t, f)), env, 4) == 0
+    assert eval_bv(Op("or", (t, f)), env, 4) == 1
+    assert eval_bv(Op("ite", (t, x, Const(9, "bv"))), env, 4) == 5
+    assert eval_bv(Op("ite", (f, x, Const(9, "bv"))), env, 4) == 9

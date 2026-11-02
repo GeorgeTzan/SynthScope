@@ -34,6 +34,13 @@ def _sdiv(a: int, b: int, w: int) -> int:
     return _neg(q, w) if an != bn else q
 
 
+def _srem(a: int, b: int, w: int) -> int:
+    """SMT-LIB bvsrem: the sign follows the dividend; remainder by zero is the dividend."""
+    an, bn = bool(a >> (w - 1)), bool(b >> (w - 1))
+    r = _urem(_neg(a, w) if an else a, _neg(b, w) if bn else b, w)
+    return _neg(r, w) if an else r
+
+
 def _ashr(a: int, b: int, w: int) -> int:
     return (_signed(a, w) >> min(b, w)) % (1 << w)
 
@@ -53,9 +60,20 @@ BINARY: dict[str, Callable[[int, int, int], int]] = {
     "bvudiv": _udiv,
     "bvurem": _urem,
     "bvsdiv": _sdiv,
+    "bvsrem": _srem,
     "bvshl": lambda a, b, w: (a << b) % (1 << w) if b < w else 0,
     "bvlshr": lambda a, b, w: a >> b if b < w else 0,
     "bvashr": _ashr,
+}
+
+
+# Booleans are the values 0 and 1 of the same width. name -> (arity, function on the argument values)
+BOOL_OPS: dict[str, tuple[int, Callable[..., int]]] = {
+    "not": (1, lambda a: 1 - a),
+    "and": (2, lambda a, b: a & b),
+    "or": (2, lambda a, b: a | b),
+    "=": (2, lambda a, b: int(a == b)),
+    "ite": (3, lambda c, a, b: a if c == 1 else b),
 }
 
 
@@ -70,6 +88,8 @@ def eval_bv(node: Node, env: dict[str, int], width: int) -> int:
     if isinstance(node, Hole):
         raise ValueError("cannot evaluate a partial program")  # noqa: TRY004
     args = [eval_bv(a, env, width) for a in node.args]
+    if node.name in BOOL_OPS and len(args) == BOOL_OPS[node.name][0]:
+        return BOOL_OPS[node.name][1](*args)
     if node.name in UNARY and len(args) == 1:
         return UNARY[node.name](args[0], width)
     if node.name in BINARY and len(args) == 2:

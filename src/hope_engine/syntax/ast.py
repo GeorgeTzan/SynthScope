@@ -71,7 +71,7 @@ def pretty(node: Node) -> str:
     if isinstance(node, Op):
         return "(" + " ".join([node.name, *(pretty(a) for a in node.args)]) + ")"
     if isinstance(node, Const):
-        return f'"{node.value}"' if isinstance(node.value, str) else str(node.value)
+        return '"' + node.value.replace('"', '""') + '"' if isinstance(node.value, str) else str(node.value)
     if isinstance(node, Var):
         return node.name
     return f"□:{node.nonterminal}"

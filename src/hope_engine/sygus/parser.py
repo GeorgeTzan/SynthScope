@@ -9,14 +9,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from hope_engine.concrete.bitvector import BINARY, UNARY, UnsupportedOperator
+from hope_engine.concrete.bitvector import BINARY, BOOL_OPS, UNARY, UnsupportedOperator
 from hope_engine.concrete.string import OPS
 from hope_engine.concrete.verify import Example
 from hope_engine.enumeration.search import Problem
 from hope_engine.syntax.ast import Const, Var
 from hope_engine.syntax.grammar import Grammar, Production
 
-BV_OPS = frozenset(UNARY) | frozenset(BINARY)
+BV_OPS = frozenset(UNARY) | frozenset(BINARY) | frozenset(BOOL_OPS)
 
 
 class SygusError(ValueError):
@@ -115,31 +115,43 @@ def _literal(a: Atom) -> tuple[int | str, str] | None:
         return int(t.text.replace("#x", "0x"), 0), "bv"
     if re.fullmatch(r"-?\d+", t.text):
         return int(t.text), "int"
+    if t.text in ("true", "false"):
+        return int(t.text == "true"), "bool"
     if t.text.startswith("#"):
         raise _err(f"bad literal {t.text!r}", a)
     return None
+
+
+def _width(text: str, at: Sx) -> int:
+    if not text.isdigit() or int(text) < 1:
+        raise _err(f"bad bitvector width {text!r}", at)
+    return int(text)
 
 
 def _sort(x: Sx) -> tuple[str, int | None]:
     if isinstance(x, SList):
         words = [_sym(i) for i in x.items]
         if words[:2] == ["_", "BitVec"] and len(words) == 3:  # SyGuS-IF v2: (_ BitVec n)
-            return "bv", int(words[2])
+            return "bv", _width(words[2], x)
         if words[:1] == ["BitVec"] and len(words) == 2:  # v1: (BitVec n)
-            return "bv", int(words[1])
-    if isinstance(x, Atom) and x.tok.text in ("String", "Int"):
+            return "bv", _width(words[1], x)
+    if isinstance(x, Atom) and x.tok.text in ("String", "Int", "Bool"):
         return "str", None
     raise _err("unsupported sort", x)
 
 
-def _production(lhs: str, x: Sx, params: set[str], nts: set[str], domain: str) -> Production:
+def _production(lhs: str, x: Sx, params: set[str], nts: set[str], domain: str) -> Production | str:
+    """A production, or the name of the nonterminal for a chain rule (`A -> B`)."""
     if isinstance(x, Atom):
         lit = _literal(x)
         if lit is not None:
-            return Production(lhs, Const(lit[0], lit[1]))
+            kind = ("bv" if domain == "bv" else "int") if lit[1] == "bool" else lit[1]  # Booleans are 0 and 1
+            return Production(lhs, Const(lit[0], kind))
         if x.tok.text in params:
             return Production(lhs, Var(x.tok.text))
-        raise _err("chain rules and unknown symbols are not supported", x)
+        if x.tok.text in nts:
+            return x.tok.text
+        raise _err(f"unknown symbol {x.tok.text!r}", x)
     if not x.items:
         raise _err("empty production", x)
     op = _sym(x.items[0])
@@ -153,6 +165,26 @@ def _production(lhs: str, x: Sx, params: set[str], nts: set[str], domain: str) -
             raise _err(f"argument {nt!r} must be a nonterminal", a)
         rhs.append(nt)
     return Production(lhs, op, tuple(rhs))
+
+
+def _inline_chains(prods: list[Production], chains: dict[str, set[str]]) -> list[Production]:
+    """Remove chain rules by copying the productions of every nonterminal reachable through them."""
+    out = list(prods)
+    have = set(out)
+    for lhs, direct in chains.items():
+        reach, todo = set(), list(direct)
+        while todo:
+            nt = todo.pop()
+            if nt not in reach:
+                reach.add(nt)
+                todo.extend(chains.get(nt, ()))
+        reach.discard(lhs)
+        for p in prods:
+            copy = Production(lhs, p.label, p.rhs)
+            if p.lhs in reach and copy not in have:
+                have.add(copy)
+                out.append(copy)
+    return out
 
 
 def _constraint(x: Sx, fname: str, params: list[str], domain: str) -> Example:
@@ -191,7 +223,9 @@ def parse_sygus(text: str) -> Problem:
                 constraints.append(f)
     if synth is None:
         raise SygusError("no synth-fun found", 1, 1)
-    if len(synth.items) < 5 or not isinstance(synth.items[2], SList) or not isinstance(synth.items[4], SList):
+    # v1: (synth-fun f params sort grammar); v2: (synth-fun f params sort predeclarations grammar)
+    gi = 5 if len(synth.items) >= 6 else 4
+    if len(synth.items) <= gi or not isinstance(synth.items[2], SList) or not isinstance(synth.items[gi], SList):
         raise _err("synth-fun needs an explicit grammar", synth)
     fname = _sym(synth.items[1])
     params: list[str] = []
@@ -203,21 +237,36 @@ def parse_sygus(text: str) -> Problem:
         params.append(_sym(p.items[0]))
         d, w = _sort(p.items[1])
         domains.add(d)
+        if w is not None and width is not None and w != width:
+            raise _err(f"mixed bitvector widths {width} and {w} are not supported", p)
         width = w if w is not None else width
     ret_d, ret_w = _sort(synth.items[3])
     domains.add(ret_d)
     if len(domains) != 1:
         raise _err("mixed bitvector and string signatures are not supported", synth)
     domain = domains.pop()
+    if ret_w is not None and width is not None and ret_w != width:
+        raise _err(f"mixed bitvector widths {width} and {ret_w} are not supported", synth.items[3])
     width = ret_w if ret_w is not None else width
-    rules = synth.items[4].items
+    grammar_node = synth.items[gi]
+    assert isinstance(grammar_node, SList)  # checked above
+    rules = grammar_node.items
+    if not rules:
+        raise _err("empty grammar", synth)
     nts = {_sym(r.items[0]) for r in rules if isinstance(r, SList) and r.items}
     prods: list[Production] = []
+    chains: dict[str, set[str]] = {}
     for r in rules:
         if not isinstance(r, SList) or len(r.items) != 3 or not isinstance(r.items[2], SList):
             raise _err("bad grammar rule", r)
         lhs = _sym(r.items[0])
-        prods += [_production(lhs, alt, set(params), nts, domain) for alt in r.items[2].items]
+        for alt in r.items[2].items:
+            made = _production(lhs, alt, set(params), nts, domain)
+            if isinstance(made, str):
+                chains.setdefault(lhs, set()).add(made)
+            else:
+                prods.append(made)
+    prods = _inline_chains(prods, chains)
     start = _sym(rules[0].items[0]) if isinstance(rules[0], SList) else ""
     examples = tuple(_constraint(c.items[1], fname, params, domain) for c in constraints if len(c.items) == 2)
     if not examples:

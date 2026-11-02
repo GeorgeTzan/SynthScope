@@ -14,7 +14,7 @@ from hope_engine.meta.lattice import Meta
 MAY, MUST, BOT = Meta.MAY_NOT_TOP, Meta.MUST_TOP, Meta.BOT
 
 _UNARY = {"bvneg", "bvnot"}
-_EITHER = {"bvand", "bvor", "bvmul", "bvsdiv", "bvlshr", "bvshl", "bvudiv", "bvashr"}
+_EITHER = {"bvand", "bvor", "bvmul", "bvsdiv", "bvsrem", "bvlshr", "bvshl", "bvudiv", "bvashr"}
 _BOTH = {"bvxor", "bvadd", "bvsub"}
 
 

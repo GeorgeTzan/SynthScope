@@ -210,7 +210,7 @@ def search(
                 heapq.heappush(queue, (size(child), counter, child))
                 counter += 1
             em.emit("hole_filled", {"positions": [list(p) for p in positions], "noprune": noprune})
-    except UnsupportedOperator:
+    except (UnsupportedOperator, TypeError):  # TypeError: ill-typed grammar, e.g. an Int where a String belongs
         status = "unsupported"
 
     seconds = time.monotonic() - start

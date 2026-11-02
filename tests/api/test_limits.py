@@ -70,3 +70,11 @@ def test_concurrency_limit() -> None:
     assert r1.status_code == 200
     assert client.post("/api/runs", json={"problem": runaway, "config": big}).status_code == 429
     client.delete(f"/api/runs/{r1.json()['run_id']}")
+
+
+def test_parser_failures_are_422_not_500(client: TestClient) -> None:
+    for bad in (
+        "(synth-fun f ((x (_ BitVec n))) (BitVec 4) ((Start (BitVec 4) (x))))\n(constraint (= (f #x1) #x2))",
+        "(synth-fun f ((x (BitVec 4))) (BitVec 4) ())\n(constraint (= (f #x1) #x2))",
+    ):
+        assert post(client, bad) == 422

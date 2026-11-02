@@ -22,6 +22,7 @@ from hope_engine.domains.string.lattice import (
     Itv,
     Str,
     alpha,
+    contains,
     join,
     leq,
     meet,
@@ -41,7 +42,15 @@ SIGNATURES: dict[str, tuple[str, str]] = {
     "str.to.int": ("s", "i"),
     "int.to.str": ("i", "s"),
     "str.replace": ("sss", "s"),
+    "+": ("ii", "i"),
+    "-": ("ii", "i"),
+    "str.prefixof": ("ss", "i"),
+    "str.suffixof": ("ss", "i"),
+    "str.contains": ("ss", "i"),
 }
+# Type-polymorphic operators handled outside SIGNATURES; Booleans are the ints 0 and 1.
+POLY = ("=", "ite")
+BOOL_RESULT = ("str.prefixof", "str.suffixof", "str.contains")
 
 
 def _kinds(op: str, n: int) -> str:
@@ -89,6 +98,62 @@ def _add(x: int, y: int) -> int:
 def _sub(x: int, y: int) -> int:
     """x - y for an upper bound x (INF-safe)."""
     return INF if x >= INF else x - y
+
+
+def _sat_add(x: int, y: int) -> int:
+    """x + y on bounds that may be +-INF (an infinite bound absorbs the other)."""
+    if abs(x) >= INF:
+        return x
+    if abs(y) >= INF:
+        return y
+    return x + y
+
+
+def _itv_add(a: Itv, b: Itv) -> A:
+    return mk_itv(_sat_add(a.lo, b.lo), _sat_add(a.hi, b.hi))
+
+
+def _itv_sub(a: Itv, b: Itv) -> A:
+    return mk_itv(_sat_add(a.lo, -b.hi), _sat_add(a.hi, -b.lo))
+
+
+def _bools(a: A) -> list[int]:
+    return [v for v in (0, 1) if contains(a, v)]
+
+
+def _forward_poly(op: str, args: Sequence[A]) -> A:
+    if op == "=":
+        if all(_exact(a) is not None for a in args):
+            return alpha(OPS[op][2](*(_exact(a) for a in args)))
+        return Itv(0, 1) if meet(args[0], args[1]) is not BOT else alpha(0)
+    out: A = BOT
+    for c in _bools(args[0]):
+        out = join(out, args[1] if c == 1 else args[2])
+    return out
+
+
+def _backward_poly(op: str, res: A, args: Sequence[A], i: int) -> A:
+    if op == "=":
+        return args[1 - i] if contains(res, 1) and not contains(res, 0) else TOP
+    cond, then, other = args
+    if i == 0:
+        feasible = {c for c, branch in ((1, then), (0, other)) if meet(branch, res) is not BOT}
+        out: A = BOT
+        for c in feasible & set(_bools(cond)):
+            out = join(out, alpha(c))
+        return out
+    taken, rival = (1, other) if i == 1 else (0, then)
+    if taken not in _bools(cond):
+        return TOP  # this branch is never taken, so its value is irrelevant
+    if (1 - taken) in _bools(cond) and meet(rival, res) is not BOT:
+        return TOP  # the other branch may produce the result
+    return res
+
+
+def _as_int_exact(a: A) -> Itv:
+    t = _as_int(a)
+    assert t is not None
+    return t
 
 
 def _concat2(a: Str, b: Str) -> A:
@@ -152,6 +217,8 @@ def _forward_int_to_str(n: Itv) -> A:
 
 
 def forward(op: str, args: Sequence[A]) -> A:
+    if op in POLY and len(args) == OPS[op][0]:
+        return BOT if any(a is BOT for a in args) else _forward_poly(op, args)
     kinds = _kinds(op, len(args))
     if any(a is BOT for a in args):
         return BOT
@@ -183,6 +250,10 @@ def forward(op: str, args: Sequence[A]) -> A:
         return _forward_substr(s0, typed[1], typed[2])
     if op == "str.indexof" and isinstance(s0, Str):
         return Itv(-1, s0.hi)
+    if op in BOOL_RESULT:
+        return Itv(0, 1)
+    if op in ("+", "-") and isinstance(s0, Itv) and isinstance(typed[1], Itv):
+        return (_itv_add if op == "+" else _itv_sub)(s0, typed[1])
     if op == "str.to.int" and isinstance(s0, Str):
         return _forward_to_int(s0)
     if op == "int.to.str" and isinstance(s0, Itv):
@@ -235,6 +306,10 @@ def _backward_at_string(r: Str, k: int | None, i: Itv) -> A:
 
 
 def backward(op: str, result: A, args: Sequence[A], i: int) -> A:
+    if op in POLY and len(args) == OPS[op][0]:
+        if result is BOT or any(a is BOT for a in args):
+            return BOT
+        return _backward_poly(op, result, args, i)
     kinds = _kinds(op, len(args))
     if result is BOT or any(a is BOT for a in args):
         return BOT
@@ -257,6 +332,12 @@ def backward(op: str, result: A, args: Sequence[A], i: int) -> A:
         return mk_itv(0, max(0, s.hi - 1) if s.hi < INF else INF) if r.lo >= 1 else TOP_INT
     if op == "str.len" and isinstance(r, Itv):
         return mk_str("", "", max(0, r.lo), r.hi)
+    if op in ("+", "-") and isinstance(r, Itv):
+        other = _as_int(args[1 - i])
+        assert other is not None
+        if op == "+":
+            return _itv_sub(r, other)
+        return _itv_add(r, other) if i == 0 else _itv_sub(_as_int_exact(args[0]), r)
     return top
 
 

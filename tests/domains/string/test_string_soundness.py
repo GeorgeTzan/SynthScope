@@ -37,6 +37,11 @@ SIGS: dict[str, tuple[str, ...]] = {
     "str.to.int": ("s",),
     "int.to.str": ("i",),
     "str.replace": ("s", "s", "s"),
+    "+": ("i", "i"),
+    "-": ("i", "i"),
+    "str.prefixof": ("s", "s"),
+    "str.suffixof": ("s", "s"),
+    "str.contains": ("s", "s"),
 }
 THREE = ("str.++3", ("s", "s", "s"))
 
@@ -151,3 +156,56 @@ def test_wildcard_and_length_invariants() -> None:
     assert mk_str("ab", "aa", 3, 3) is BOT  # exact length 3: position 1 is b vs a
     assert mk_str("ab", "ba", 3, 3) == Str("aba", "aba", 3, 3)
     assert mk_str("a*", "*b", 2, 2) == Str("ab", "ab", 2, 2)
+
+
+BOOLS = [alpha(0), alpha(1), Itv(0, 1), TOP, Itv(-1, 3)]
+
+
+def _poly_cases(rng: random.Random):  # type: ignore[no-untyped-def]
+    """(op, kinds, args) for the type-polymorphic operators = and ite, over strings and ints."""
+    for kind in ("s", "i"):
+        for _ in range(80):
+            yield "=", (kind, kind), [rand_arg(rng, kind), rand_arg(rng, kind)]
+            yield "ite", ("b", kind, kind), [rng.choice(BOOLS), rand_arg(rng, kind), rand_arg(rng, kind)]
+
+
+def _pool(a, kind: str) -> list[Value]:  # type: ignore[no-untyped-def]
+    return [v for v in (0, 1) if contains(a, v)] if kind == "b" else gamma(a, kind)
+
+
+@pytest.mark.parametrize("op", ["=", "ite"])
+def test_polymorphic_forward_sound(op: str) -> None:
+    for o, kinds, args in _poly_cases(random.Random(31)):
+        if o != op:
+            continue
+        res = D.forward(op, args)
+        for vals in itertools.product(*(_pool(a, k) for a, k in zip(args, kinds, strict=True))):
+            assert contains(res, OPS[op][2](*vals)), (op, args, vals)
+
+
+@pytest.mark.parametrize("op", ["=", "ite"])
+def test_polymorphic_backward_sound(op: str) -> None:
+    rng = random.Random(32)
+    for o, kinds, args in _poly_cases(rng):
+        if o != op:
+            continue
+        pools = [_pool(a, k) for a, k in zip(args, kinds, strict=True)]
+        if any(not p for p in pools):
+            continue
+        res: A = BOT
+        for _ in range(rng.randint(1, 3)):
+            res = join(res, alpha(OPS[op][2](*(rng.choice(p) for p in pools))))
+        pres = [D.backward(op, res, args, i) for i in range(len(kinds))]
+        for vals in itertools.product(*pools):
+            if contains(res, OPS[op][2](*vals)):
+                for i, v in enumerate(vals):
+                    unused = op == "ite" and (i, vals[0]) in ((1, 0), (2, 1))  # untaken branch is unconstrained
+                    assert unused or contains(pres[i], v), (op, i, args, res, vals)
+
+
+def test_conditional_and_comparison_decide_when_they_can() -> None:
+    assert D.forward("=", [alpha("a"), alpha("b")]) == alpha(0)
+    assert D.forward("=", [Itv(0, 2), Itv(5, 6)]) == alpha(0)
+    assert D.forward("ite", [alpha(1), alpha("x"), alpha("y")]) == alpha("x")
+    assert D.forward("+", [Itv(1, 2), Itv(10, 10)]) == Itv(11, 12)
+    assert D.backward("=", alpha(1), [TOP, alpha("q")], 0) == alpha("q")

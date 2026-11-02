@@ -47,6 +47,16 @@ def _replace(s: Value, t: Value, u: Value) -> Value:
     return c + a if b == "" else a.replace(b, c, 1)
 
 
+def _equal(a: Value, b: Value) -> Value:
+    if isinstance(a, str) != isinstance(b, str):
+        raise TypeError(f"cannot compare {a!r} with {b!r}")
+    return int(a == b)
+
+
+def _ite(c: Value, a: Value, b: Value) -> Value:
+    return a if _int(c) == 1 else b  # Booleans are the ints 0 and 1
+
+
 def _concat(*args: Value) -> Value:
     return "".join(_str(a) for a in args)
 
@@ -63,6 +73,13 @@ OPS: dict[str, tuple[int, int | None, Callable[..., Value]]] = {
     "str.to.int": (1, 1, _to_int),
     "int.to.str": (1, 1, lambda n: str(_int(n)) if _int(n) >= 0 else ""),
     "str.replace": (3, 3, _replace),
+    "+": (2, 2, lambda a, b: _int(a) + _int(b)),
+    "-": (2, 2, lambda a, b: _int(a) - _int(b)),
+    "str.prefixof": (2, 2, lambda s, t: int(_str(t).startswith(_str(s)))),
+    "str.suffixof": (2, 2, lambda s, t: int(_str(t).endswith(_str(s)))),
+    "str.contains": (2, 2, lambda s, t: int(_str(t) in _str(s))),
+    "=": (2, 2, _equal),
+    "ite": (3, 3, _ite),
 }
 
 

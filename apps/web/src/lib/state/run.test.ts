@@ -145,3 +145,31 @@ describe('RunState', () => {
     expect(replayed.series.at(-1)).toEqual(live.series.at(-1));
   });
 });
+
+describe('RunState run identity', () => {
+  it('ignores events from another run', () => {
+    const { state } = make();
+    state.runId = 'r1';
+    state.apply({ ...ev(0, 'candidate_expanded', { program: 'x' }), run_id: 'other' });
+    expect(state.events.length).toBe(0);
+  });
+
+  it('closes the previous socket when a new run starts', async () => {
+    const { state } = make();
+    await state.start('p', cfg);
+    const first = FakeSocket.last;
+    let closed = false;
+    first.close = () => {
+      closed = true;
+    };
+    await state.start('p', cfg);
+    expect(closed).toBe(true);
+  });
+
+  it('replays a recording even after a live run with another id', async () => {
+    const { state } = make();
+    await state.start('p', cfg);
+    state.replay([{ ...ev(0, 'candidate_expanded', { program: 'x' }), run_id: 'recorded' }]);
+    expect(state.events.length).toBe(1);
+  });
+});

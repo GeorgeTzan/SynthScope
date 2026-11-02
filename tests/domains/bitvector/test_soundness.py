@@ -3,7 +3,7 @@ import random
 
 import pytest
 
-from hope_engine.concrete.bitvector import BINARY, UNARY, UnsupportedOperator
+from hope_engine.concrete.bitvector import BINARY, BOOL_OPS, UNARY, UnsupportedOperator
 from hope_engine.domains.bitvector.lattice import BV, alpha, bottom, join, reduce_, top
 from hope_engine.domains.bitvector.ops import BitvectorDomain
 
@@ -123,3 +123,65 @@ def test_bvmul_by_even_constant_clears_low_bit() -> None:
     d = BitvectorDomain(4)
     res = d.forward("bvmul", [top(4), alpha(4, 2)])
     assert not res.contains(1) and not res.contains(3) and res.contains(2)
+
+
+BOOLS = sorted(BOOL_OPS)
+
+
+def _typed(op: str, i: int) -> bool:
+    """True when argument i of op holds a Boolean (0 or 1); ite branches and = operands hold any value."""
+    return op in ("and", "or", "not") or (op == "ite" and i == 0)
+
+
+def _tuples(op: str, args: list[BV]) -> list[tuple[int, ...]]:
+    pools = [[v for v in gamma(a) if not _typed(op, i) or v in (0, 1)] for i, a in enumerate(args)]
+    return list(itertools.product(*pools))
+
+
+def _arg_sets(op: str, w: int, rng: random.Random) -> list[list[BV]]:
+    els = elements(w, rng, 6)
+    n = BOOL_OPS[op][0]
+    out = [list(c) for c in itertools.product(els, repeat=n)]
+    return out if len(out) <= 600 else rng.sample(out, 600)
+
+
+@pytest.mark.parametrize("w", [1, 2, 3])
+@pytest.mark.parametrize("op", BOOLS)
+def test_bool_forward_sound(op: str, w: int) -> None:
+    d = BitvectorDomain(w)
+    for args in _arg_sets(op, w, random.Random(5)):
+        res = d.forward(op, args)
+        for vals in _tuples(op, args):
+            assert res.contains(BOOL_OPS[op][1](*vals)), (op, args, vals)
+
+
+@pytest.mark.parametrize("w", [1, 2, 3])
+@pytest.mark.parametrize("op", BOOLS)
+def test_bool_backward_sound(op: str, w: int) -> None:
+    d = BitvectorDomain(w)
+    rng = random.Random(6)
+    els = elements(w, rng, 4)
+    for args in _arg_sets(op, w, rng):
+        for r in rng.sample(els, min(5, len(els))):
+            pres = [d.backward(op, r, args, i) for i in range(len(args))]
+            for vals in _tuples(op, args):
+                if r.contains(BOOL_OPS[op][1](*vals)):
+                    for i, v in enumerate(vals):
+                        unused = op == "ite" and (i, vals[0]) in ((1, 0), (2, 1))  # untaken branch: unconstrained
+                        assert unused or pres[i].contains(v), (op, i, args, r, vals)
+
+
+def test_bool_forward_decides_when_it_can() -> None:
+    d = BitvectorDomain(4)
+    one, zero = alpha(4, 1), alpha(4, 0)
+    assert d.forward("=", [alpha(4, 3), alpha(4, 5)]) == zero
+    assert d.forward("and", [zero, top(4)]) == zero
+    assert d.forward("or", [one, top(4)]) == one
+    assert d.forward("ite", [one, alpha(4, 7), alpha(4, 2)]) == alpha(4, 7)
+    assert d.backward("ite", alpha(4, 7), [top(4), alpha(4, 7), alpha(4, 2)], 0) == one
+
+
+def test_ite_untaken_branch_is_unconstrained() -> None:
+    d = BitvectorDomain(4)
+    pre = d.backward("ite", alpha(4, 7), [alpha(4, 1), alpha(4, 7), top(4)], 2)
+    assert not pre.is_bottom

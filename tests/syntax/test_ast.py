@@ -50,3 +50,9 @@ def test_pretty_sexpr() -> None:
     assert pretty(p) == "(bvadd □:S (bvnot x))"
     assert pretty(Const(1, "bv")) == "1"
     assert pretty(Const("a b", "str")) == '"a b"'
+
+
+def test_pretty_escapes_quotes_in_string_constants() -> None:
+    from hope_engine.syntax.ast import pretty
+
+    assert pretty(Const('a"b', "str")) == '"a""b"'

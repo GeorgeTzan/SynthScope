@@ -139,3 +139,21 @@ def test_replace_matches_z3(a: str, b: str, c: str) -> None:
 def test_concat_and_len_match_z3(a: str, b: str) -> None:
     assert run("str.++", s(a), s(b)) == zv(z3.Concat(zs(a), zs(b)))
     assert run("str.len", s(a)) == zv(z3.Length(zs(a)))
+
+
+def test_arithmetic_comparison_and_conditional_ops() -> None:
+    from hope_engine.syntax.ast import Const, Op, Var
+
+    env: dict[str, str | int] = {"s": "abc", "n": 4}
+    s, n = Var("s"), Var("n")
+    assert eval_str(Op("+", (n, Const(2, "int"))), env) == 6
+    assert eval_str(Op("-", (n, Const(5, "int"))), env) == -1
+    assert eval_str(Op("str.prefixof", (Const("ab", "str"), s)), env) == 1
+    assert eval_str(Op("str.prefixof", (Const("bc", "str"), s)), env) == 0
+    assert eval_str(Op("str.suffixof", (Const("bc", "str"), s)), env) == 1
+    assert eval_str(Op("str.contains", (s, Const("b", "str"))), env) == 1
+    assert eval_str(Op("=", (n, Const(4, "int"))), env) == 1
+    assert eval_str(Op("=", (s, Const("x", "str"))), env) == 0
+    yes, no = Const(1, "int"), Const(0, "int")
+    assert eval_str(Op("ite", (yes, s, Const("z", "str"))), env) == "abc"
+    assert eval_str(Op("ite", (no, s, Const("z", "str"))), env) == "z"

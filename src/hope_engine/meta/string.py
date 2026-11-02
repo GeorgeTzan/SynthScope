@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from hope_engine.meta.lattice import Meta
 
 BOT, MUST, MAY = Meta.BOT, Meta.MUST_TOP, Meta.MAY_NOT_TOP
-_REFINED_BACKWARD = {"str.++", "ConCat", "str.at", "CharAt0", "str.len"}
+_REFINED_BACKWARD = {"str.++", "ConCat", "str.at", "CharAt0", "str.len", "+", "-", "=", "ite"}
 
 
 @dataclass(frozen=True)
