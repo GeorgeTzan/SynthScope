@@ -4,6 +4,31 @@ export interface SynthEvent {
   seq: number;
   kind: string;
   payload: Record<string, unknown>;
+  /** Seconds since the run started (absent on older servers). */
+  t?: number;
+}
+
+/** One node of the candidate tree: a partial program the search expanded, and where it came from. */
+export interface Candidate {
+  id: number;
+  parent: number | null;
+  program: string;
+  holes: number;
+  depth: number;
+  status: 'expanded' | 'pruned';
+}
+
+/** Payload of an `analysis` event: the abstract value of every node of a partial program, for one example. */
+export interface AnalysisNode {
+  path: number[];
+  label: string;
+  state: string;
+}
+export interface AnalysisPayload {
+  inputs: Record<string, number | string>;
+  output: number | string | null;
+  infeasible: boolean;
+  nodes: AnalysisNode[];
 }
 
 export type RunStatus =

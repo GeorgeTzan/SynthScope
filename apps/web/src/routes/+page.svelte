@@ -1,62 +1,89 @@
 <script lang="ts">
-  import AstView from '$lib/components/AstView.svelte';
+  import { onMount } from 'svelte';
+  import AbstractState from '$lib/components/AbstractState.svelte';
+  import BenchmarkSummary from '$lib/components/BenchmarkSummary.svelte';
   import BestCandidate from '$lib/components/BestCandidate.svelte';
-  import HolesPanel from '$lib/components/HolesPanel.svelte';
+  import CandidateProgram from '$lib/components/CandidateProgram.svelte';
+  import CenterTabs from '$lib/components/CenterTabs.svelte';
+  import ExamplesPanel from '$lib/components/ExamplesPanel.svelte';
+  import GrammarPanel from '$lib/components/GrammarPanel.svelte';
+  import ProblemDialog from '$lib/components/ProblemDialog.svelte';
   import ProgressChart from '$lib/components/ProgressChart.svelte';
-  import RunControls from '$lib/components/RunControls.svelte';
-  import Stats from '$lib/components/Stats.svelte';
+  import Rail from '$lib/components/Rail.svelte';
+  import Statistics from '$lib/components/Statistics.svelte';
   import SynthLog from '$lib/components/SynthLog.svelte';
+  import TopBar from '$lib/components/TopBar.svelte';
+  import { AppState } from '$lib/state/app.svelte';
   import { RunState } from '$lib/state/run.svelte';
 
-  const SAMPLE = `(set-logic BV)
-(synth-fun f ((x (BitVec 4))) (BitVec 4)
-  ((Start (BitVec 4) (x #x1 (bvand Start Start) (bvadd Start Start) (bvnot Start)))))
-(constraint (= (f #b1011) #b1000))
-(constraint (= (f #b0111) #b0000))
-(check-synth)
-`;
-
+  const app = new AppState();
   const run = new RunState();
-  let problem = $state(SAMPLE);
+  let editing = $state(false);
+
+  let signature = $derived(app.parsed ? `${app.parsed.functionName}(${app.parsed.params.map((p) => p.name).join(', ')})` : 'f(x)');
+  let depthById = $derived(new Map(run.candidates.map((c) => [c.id, c.depth])));
+
+  onMount(() => void app.loadLists());
+
+  function start() {
+    void run.start(app.problem, { ...app.config });
+  }
+  function reset() {
+    run.replay([]);
+    run.status = 'idle';
+  }
 </script>
 
 <svelte:head><title>SynthScope</title></svelte:head>
 
-<header>
-  <h1>SynthScope</h1>
-  <p>Live view of HOPE: meta-analysis-guided hole filling. Everything shown is an event from the engine.</p>
-</header>
-
-<main>
-  <div class="panel left"><RunControls {run} bind:problem /></div>
-  <div class="panel center">
-    <h2>Partial program</h2>
-    <AstView program={run.current ?? run.best} />
-    <HolesPanel ranks={run.ranks} />
-    <BestCandidate program={run.best} status={run.status} />
+<div class="shell">
+  <TopBar {app} {run} onrun={start} onreset={reset} />
+  <div class="body">
+    <Rail onedit={() => (editing = true)} />
+    <main>
+      {#if app.loadError}<p class="banner" role="alert">{app.loadError}</p>{/if}
+      {#if run.error}<p class="banner" role="alert">{run.error}</p>{/if}
+      <div class="left">
+        <ExamplesPanel problem={app.parsed} onedit={() => (editing = true)} />
+        <GrammarPanel problem={app.parsed} />
+      </div>
+      <div class="mid">
+        <CenterTabs {run} />
+        <div class="pair">
+          <CandidateProgram program={run.current ?? run.best} />
+          <AbstractState analysis={run.analysis} />
+        </div>
+        <div class="pair lower">
+          <div id="progress"><ProgressChart series={run.series} /></div>
+          <div id="benchmarks"><BenchmarkSummary rows={app.results} /></div>
+        </div>
+      </div>
+      <div class="right">
+        <SynthLog entries={run.events} status={run.status} elapsed={run.elapsed} depthOf={(id) => depthById.get(Number(id)) ?? 0} />
+        <BestCandidate program={run.best} status={run.status} {signature} />
+        <Statistics explored={run.explored} pruned={run.pruned} elapsed={run.elapsed} maxDepth={run.maxDepth} nodes={run.nodes} />
+      </div>
+    </main>
   </div>
-  <div class="panel right">
-    <SynthLog entries={run.events} />
-    <Stats explored={run.explored} pruned={run.pruned} received={run.events.length} nodes={run.nodes} status={run.status} />
-  </div>
-  <div class="panel bottom"><ProgressChart series={run.series} /></div>
-</main>
+  <ProblemDialog bind:open={editing} bind:problem={app.problem} />
+</div>
 
 <style>
-  :global(:root) {
-    --bg: #0c0e17; --panel: #131626; --panel-2: #0f1220; --line: #252a42; --text: #e6e8f2;
-    --muted: #8b90ab; --accent: #6d5dfc; --violet: #b18cff; --teal: #3fd9c0;
-    --mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  .shell { min-height: 100vh; display: flex; flex-direction: column; }
+  .body { display: grid; grid-template-columns: auto 1fr; flex: 1; min-height: 0; }
+  main { display: grid; grid-template-columns: minmax(17rem, 21rem) minmax(0, 1fr) minmax(19rem, 24rem); gap: 0.9rem; padding: 0.9rem; align-items: start; }
+  .left, .mid, .right { display: grid; gap: 0.9rem; min-width: 0; align-content: start; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; align-items: start; }
+  .pair > :global(*) { min-width: 0; }
+  .lower { grid-template-columns: 1.15fr 1fr; }
+  .banner { grid-column: 1 / -1; background: var(--rose-soft); border: 1px solid rgba(255, 107, 129, 0.4); color: #ffb3bf; padding: 0.6rem 0.9rem; border-radius: 10px; }
+  @media (max-width: 1280px) {
+    main { grid-template-columns: minmax(16rem, 20rem) minmax(0, 1fr); }
+    .right { grid-column: 1 / -1; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); }
   }
-  :global(body) { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
-  header { padding: 1rem 1rem 0; }
-  h1 { margin: 0; font-size: 1.3rem; }
-  header p { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.85rem; }
-  main { display: grid; gap: 1rem; padding: 1rem; grid-template-columns: 1fr; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 0.7rem; padding: 1rem; min-width: 0; }
-  .panel h2 { margin: 0 0 0.6rem; font-size: 0.95rem; }
-  @media (min-width: 1000px) {
-    main { grid-template-columns: 1fr 1.4fr 1fr; }
-    .bottom { grid-column: 1 / -1; }
+  @media (max-width: 900px) {
+    .body { grid-template-columns: 1fr; }
+    main { grid-template-columns: 1fr; }
+    .pair, .lower { grid-template-columns: 1fr; }
   }
 </style>

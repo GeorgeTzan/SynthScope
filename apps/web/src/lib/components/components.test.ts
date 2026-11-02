@@ -1,11 +1,14 @@
 import { render, screen } from '@testing-library/svelte';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { parseProblem } from '../problem';
+import { SAMPLES } from '../state/app.svelte';
 import type { SynthEvent } from '../types';
-import AstView from './AstView.svelte';
+import AstGraph from './AstGraph.svelte';
+import BenchmarkSummary from './BenchmarkSummary.svelte';
 import BestCandidate from './BestCandidate.svelte';
-import HolesPanel from './HolesPanel.svelte';
-import ProgressChart from './ProgressChart.svelte';
-import Stats from './Stats.svelte';
+import ExamplesPanel from './ExamplesPanel.svelte';
+import GrammarPanel from './GrammarPanel.svelte';
+import Statistics from './Statistics.svelte';
 import SynthLog from './SynthLog.svelte';
 
 const ev = (seq: number, kind: string, payload: Record<string, unknown>): SynthEvent => ({
@@ -16,75 +19,82 @@ const ev = (seq: number, kind: string, payload: Record<string, unknown>): SynthE
   payload
 });
 
-describe('AstView', () => {
+describe('AstGraph', () => {
+  beforeAll(() => {
+    // jsdom has no ResizeObserver; the graph only uses it to fit the view
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
   it('draws operators, leaves and holes from the engine program text', () => {
-    render(AstView, { program: '(bvadd □:S (bvnot x))' });
+    render(AstGraph, { program: '(bvadd □:S (bvnot x))', ranks: null });
     expect(screen.getByText('bvadd')).toBeTruthy();
     expect(screen.getByText('bvnot')).toBeTruthy();
     expect(screen.getByText('x')).toBeTruthy();
-    expect(screen.getAllByLabelText('hole S')).toHaveLength(1);
+    expect(screen.getByLabelText('Holes')).toBeTruthy();
   });
-  it('shows a placeholder before any candidate and an error for unparseable text', () => {
-    const { unmount } = render(AstView, { program: null });
-    expect(screen.getByText(/no candidate yet/i)).toBeTruthy();
-    unmount();
-    render(AstView, { program: '(broken' });
-    expect(screen.getByRole('alert')).toBeTruthy();
+  it('shows a prompt before any candidate', () => {
+    render(AstGraph, { program: null, ranks: null });
+    expect(screen.getByText(/press run/i)).toBeTruthy();
+  });
+  it('says so when the program text cannot be parsed', () => {
+    render(AstGraph, { program: '(bvadd', ranks: null });
+    expect(screen.getByRole('alert').textContent).toMatch(/cannot draw program/i);
   });
 });
 
-describe('HolesPanel', () => {
-  it('lists ranked hole sets and marks the picked one (engine payload shape)', () => {
-    render(HolesPanel, {
-      ranks: { rank1: [[[0, 0], [0, 1]]], rank2: [[[1]]], picked: [[0, 0], [0, 1]], noprune: false }
-    });
-    expect(screen.getByText(/rank 1/i)).toBeTruthy();
-    expect(screen.getByText(/rank 2/i)).toBeTruthy();
-    expect(screen.getByText(/picked/i).parentElement?.textContent).toContain('0.0 + 0.1');
-    expect(screen.queryByText(/no pruning possible/i)).toBeNull();
+describe('ExamplesPanel and GrammarPanel', () => {
+  const problem = parseProblem(SAMPLES.bitvector);
+  it('lists the examples of a parsed problem', () => {
+    render(ExamplesPanel, { problem, onedit: () => {} });
+    expect(screen.getByText('Input')).toBeTruthy();
+    expect(screen.getByText('Output')).toBeTruthy();
   });
-  it('says so when no ranked hole exists (noprune)', () => {
-    render(HolesPanel, { ranks: { rank1: [], rank2: [], picked: [[0]], noprune: true } });
-    expect(screen.getByText(/no pruning possible/i)).toBeTruthy();
+  it('lists operators and variables of the grammar', () => {
+    render(GrammarPanel, { problem });
+    expect(screen.getByText('bvand')).toBeTruthy();
+    expect(screen.getByText(/Operators \(/)).toBeTruthy();
   });
-  it('renders nothing meaningful without ranks', () => {
-    render(HolesPanel, { ranks: null });
-    expect(screen.getByText(/no ranking yet/i)).toBeTruthy();
+  it('handles a missing problem', () => {
+    render(GrammarPanel, { problem: null });
+    expect(screen.getByText(/no grammar/i)).toBeTruthy();
   });
 });
 
 describe('SynthLog', () => {
-  it('shows only the most recent events and keeps their order', () => {
-    const events = Array.from({ length: 500 }, (_, i) => ev(i, 'candidate_expanded', { program: `p${i}` }));
-    render(SynthLog, { entries: events, limit: 50 });
-    expect(screen.queryByText(/p0$/)).toBeNull();
-    expect(screen.getByText(/p499$/)).toBeTruthy();
-    expect(screen.getAllByRole('listitem')).toHaveLength(50);
+  it('renders one line per event and the elapsed time', () => {
+    render(SynthLog, {
+      entries: [ev(1, 'run_started', { policy: 'hope' }), ev(2, 'solution_found', { program: '(bvnot x)' })],
+      status: 'solved',
+      elapsed: 0.5
+    });
+    expect(screen.getAllByRole('listitem').length).toBeGreaterThanOrEqual(2);
+  });
+  it('is empty and idle without events', () => {
+    render(SynthLog, { entries: [], status: 'idle', elapsed: 0 });
+    expect(screen.getByText('Idle')).toBeTruthy();
   });
 });
 
-describe('BestCandidate, Stats, ProgressChart', () => {
-  it('shows the solution', () => {
-    render(BestCandidate, { program: '(bvadd x 1)', status: 'solved' });
-    expect(screen.getByText('(bvadd x 1)')).toBeTruthy();
+describe('BestCandidate, Statistics, BenchmarkSummary', () => {
+  it('shows the solution call', () => {
+    render(BestCandidate, { program: '(bvnot x)', status: 'solved', signature: 'f(x)' });
+    expect(screen.getByText('bvnot')).toBeTruthy();
   });
-  it('shows counters', () => {
-    render(Stats, { explored: 12, pruned: 30, received: 99, nodes: 77, status: 'running' });
-    expect(screen.getByText('12')).toBeTruthy();
-    expect(screen.getByText('30')).toBeTruthy();
-    expect(screen.getByText('77')).toBeTruthy();
+  it('shows counters and the pruned share', () => {
+    render(Statistics, { explored: 10, pruned: 30, elapsed: 1.5, maxDepth: 3, nodes: 40 });
+    expect(screen.getByText(/75/)).toBeTruthy();
   });
-  it('plots one polyline per series', () => {
-    const { container } = render(ProgressChart, {
-      series: [
-        { seq: 0, explored: 0, pruned: 0 },
-        { seq: 5, explored: 3, pruned: 1 }
-      ]
+  it('shows an empty state without results and grouped rows with them', () => {
+    const { unmount } = render(BenchmarkSummary, { rows: [] });
+    expect(screen.getByText(/no benchmark runs/i)).toBeTruthy();
+    unmount();
+    render(BenchmarkSummary, {
+      rows: [{ corpus: 'duet', config: 'hope_h1', total: 24, solved: 5, validated: 5, mean_seconds_solved: 3.4, total_nodes: 100 }]
     });
-    expect(container.querySelectorAll('polyline')).toHaveLength(2);
-  });
-  it('handles an empty series', () => {
-    render(ProgressChart, { series: [] });
-    expect(screen.getByText(/no data/i)).toBeTruthy();
+    expect(screen.getByText('String (Duet)')).toBeTruthy();
+    expect(screen.getByText('HOPE, 1 hole')).toBeTruthy();
   });
 });

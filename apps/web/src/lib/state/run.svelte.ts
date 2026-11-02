@@ -1,4 +1,4 @@
-import type { HoleRanks, RunConfig, RunStatus, SynthEvent } from '../types';
+import type { AnalysisPayload, Candidate, HoleRanks, RunConfig, RunStatus, SynthEvent } from '../types';
 
 export interface Deps {
   fetch: typeof fetch;
@@ -7,6 +7,7 @@ export interface Deps {
 
 export interface Point {
   seq: number;
+  t: number;
   explored: number;
   pruned: number;
 }
@@ -26,8 +27,13 @@ export class RunState {
   explored = $state(0);
   pruned = $state(0);
   series = $state<Point[]>([]);
+  elapsed = $state(0);
+  maxDepth = $state(0);
+  candidates = $state<Candidate[]>([]);
+  analysis = $state<AnalysisPayload | null>(null);
 
   private lastSeq = -1;
+  private depthOf = new Map<number, number>();
   private ws: WebSocket | null = null;
   private deps: Deps;
 
@@ -46,6 +52,11 @@ export class RunState {
     this.explored = 0;
     this.pruned = 0;
     this.series = [];
+    this.elapsed = 0;
+    this.maxDepth = 0;
+    this.candidates = [];
+    this.analysis = null;
+    this.depthOf = new Map();
     this.lastSeq = -1;
   }
 
@@ -57,12 +68,23 @@ export class RunState {
     this.events.push(e);
     const p = e.payload;
     switch (e.kind) {
-      case 'candidate_expanded':
+      case 'candidate_expanded': {
         this.explored += 1;
         this.current = String(p.program ?? '');
+        const id = typeof p.id === 'number' ? p.id : this.candidates.length;
+        const parent = typeof p.parent === 'number' ? p.parent : null;
+        const depth = parent === null ? 0 : (this.depthOf.get(parent) ?? 0) + 1;
+        this.depthOf.set(id, depth);
+        this.maxDepth = Math.max(this.maxDepth, depth);
+        this.candidates.push({ id, parent, program: this.current, holes: Number(p.holes ?? 0), depth, status: 'expanded' });
         break;
+      }
       case 'pruned':
         this.pruned += typeof p.count === 'number' ? p.count : 1;
+        if (p.reason === 'infeasible' && this.candidates.length > 0) this.candidates[this.candidates.length - 1].status = 'pruned';
+        break;
+      case 'analysis':
+        this.analysis = p as unknown as AnalysisPayload;
         break;
       case 'hole_ranked':
         this.ranks = p as unknown as HoleRanks;
@@ -75,7 +97,8 @@ export class RunState {
         this.nodes = typeof p.nodes === 'number' ? p.nodes : null;
         break;
     }
-    this.series.push({ seq: e.seq, explored: this.explored, pruned: this.pruned });
+    if (typeof e.t === 'number') this.elapsed = e.t;
+    this.series.push({ seq: e.seq, t: this.elapsed, explored: this.explored, pruned: this.pruned });
   }
 
   replay(events: SynthEvent[]) {

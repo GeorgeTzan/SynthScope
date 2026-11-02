@@ -173,3 +173,49 @@ describe('RunState run identity', () => {
     expect(state.events.length).toBe(1);
   });
 });
+
+describe('RunState derived views', () => {
+  const at = (seq: number, t: number, kind: string, payload: Record<string, unknown> = {}): SynthEvent => ({
+    ...ev(seq, kind, payload),
+    t
+  });
+
+  it('follows event time for elapsed time and the progress series', () => {
+    const s = new RunState();
+    s.apply(at(0, 0, 'search_started'));
+    s.apply(at(1, 0.013, 'candidate_expanded', { program: 'a', id: 0, parent: null, holes: 1 }));
+    s.apply(at(2, 0.177, 'pruned', { count: 3, reason: 'component' }));
+    expect(s.elapsed).toBeCloseTo(0.177);
+    expect(s.series.at(-1)).toMatchObject({ t: 0.177, explored: 1, pruned: 3 });
+  });
+
+  it('builds the candidate tree with depths and marks infeasible candidates', () => {
+    const s = new RunState();
+    s.apply(at(0, 0, 'candidate_expanded', { program: '□:S', id: 0, parent: null, holes: 1 }));
+    s.apply(at(1, 0.1, 'candidate_expanded', { program: '(f □:S)', id: 3, parent: 0, holes: 1 }));
+    s.apply(at(2, 0.2, 'candidate_expanded', { program: '(f (f □:S))', id: 5, parent: 3, holes: 1 }));
+    s.apply(at(3, 0.3, 'pruned', { program: '(f (f □:S))', reason: 'infeasible' }));
+    expect(s.candidates.map((c) => [c.id, c.parent, c.depth, c.status])).toEqual([
+      [0, null, 0, 'expanded'],
+      [3, 0, 1, 'expanded'],
+      [5, 3, 2, 'pruned']
+    ]);
+    expect(s.maxDepth).toBe(2);
+  });
+
+  it('keeps the latest abstract state and counts a solved run', () => {
+    const s = new RunState();
+    const nodes = [{ path: [], label: 'bvadd', state: '#x4' }];
+    s.apply(at(0, 0, 'analysis', { inputs: { x: 3 }, output: 4, infeasible: false, nodes }));
+    expect(s.analysis?.nodes).toEqual(nodes);
+    expect(s.analysis?.inputs).toEqual({ x: 3 });
+  });
+
+  it('tolerates events without time or ids (older servers)', () => {
+    const s = new RunState();
+    s.apply(ev(0, 'candidate_expanded', { program: 'a' }));
+    expect(s.elapsed).toBe(0);
+    expect(s.candidates).toHaveLength(1);
+    expect(s.candidates[0].parent).toBeNull();
+  });
+});

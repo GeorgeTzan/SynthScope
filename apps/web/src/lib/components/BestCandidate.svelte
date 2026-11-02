@@ -1,22 +1,58 @@
 <script lang="ts">
+  import { callSegments } from '../holes';
+  import { parseProgram } from '../sexpr';
   import type { RunStatus } from '../types';
+  import Icon from './Icon.svelte';
+  import Panel from './Panel.svelte';
 
-  let { program, status }: { program: string | null; status: RunStatus } = $props();
+  let { program, status, signature }: { program: string | null; status: RunStatus; signature: string } = $props();
+
+  let segments = $derived.by(() => {
+    if (!program) return null;
+    try {
+      return callSegments(parseProgram(program));
+    } catch {
+      return [{ text: program, kind: 'leaf' as const }];
+    }
+  });
+  let copied = $state(false);
+
+  async function copy() {
+    const text = `${signature} = ${segments?.map((s) => s.text).join('') ?? ''}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+      setTimeout(() => (copied = false), 1500);
+    } catch {
+      /* clipboard blocked: nothing to do */
+    }
+  }
 </script>
 
-<section aria-label="Best candidate">
-  <h3>Best candidate <span class="badge" class:ok={status === 'solved'}>{program ? 'solution' : status}</span></h3>
-  {#if program}
-    <code>{program}</code>
+<Panel title="Best Candidate" icon="trophy">
+  {#snippet right()}
+    {#if status === 'solved'}<span class="badge">Solution</span>{/if}
+  {/snippet}
+  {#if segments}
+    <div class="code">
+      <code><span class="sig">{signature}</span> = {#each segments as s, i (i)}<span class={s.kind}>{s.text}</span>{/each}</code>
+      <button aria-label="Copy solution" onclick={copy}>{#if copied}<Icon name="check" size={16} />{:else}<Icon name="copy" size={16} />{/if}</button>
+    </div>
   {:else}
-    <p class="muted">No solution yet.</p>
+    <p class="empty">{status === 'running' ? 'Searching…' : 'No solution yet.'}</p>
   {/if}
-</section>
+</Panel>
 
 <style>
-  h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
-  .badge { font-size: 0.7rem; padding: 0.1rem 0.5rem; border-radius: 1rem; background: var(--line); margin-left: 0.5rem; }
-  .ok { background: var(--teal); color: #04120f; }
-  code { font-family: var(--mono); color: var(--teal); word-break: break-all; }
-  .muted { color: var(--muted); }
+  .badge { font-size: 0.75rem; font-weight: 600; color: var(--teal); background: var(--teal-soft); border: 1px solid rgba(53, 224, 198, 0.4); border-radius: 999px; padding: 0.1rem 0.7rem; }
+  .code { display: flex; align-items: center; gap: 0.5rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 0.8rem; }
+  code { flex: 1; font-size: 0.9rem; overflow-x: auto; white-space: nowrap; }
+  .sig { color: var(--text); }
+  .op { color: var(--violet-2); }
+  .hole { color: #ff9be0; }
+  .leaf { color: var(--teal); }
+  .punct { color: var(--muted); }
+  button { background: transparent; border: 0; color: var(--muted); cursor: pointer; padding: 0.25rem; border-radius: 7px; display: grid; }
+  button:hover { color: var(--text); }
+  .empty { color: var(--muted); font-size: 0.85rem; }
 </style>

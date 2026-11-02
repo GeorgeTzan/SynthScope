@@ -1,0 +1,68 @@
+:root {
+  --bg: #080a14;
+  --bg-2: #0b0e1c;
+  --panel: #0f1226;
+  --panel-2: #0a0d1d;
+  --line: #1d2342;
+  --line-2: #2c3463;
+  --text: #e8eaf6;
+  --muted: #8d94ba;
+  --dim: #5c6490;
+  --violet: #8b6cff;
+  --violet-2: #b79cff;
+  --violet-soft: rgba(139, 108, 255, 0.16);
+  --teal: #35e0c6;
+  --teal-soft: rgba(53, 224, 198, 0.14);
+  --rose: #ff6b81;
+  --rose-soft: rgba(255, 107, 129, 0.14);
+  --amber: #ffb454;
+  --blue: #5aa2ff;
+  --sans: Inter, 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono: 'JetBrains Mono', 'Fira Code', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --radius: 14px;
+  --radius-sm: 9px;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at 70% -10%, rgba(139, 108, 255, 0.1), transparent 60%),
+    radial-gradient(900px 500px at 0% 100%, rgba(53, 224, 198, 0.05), transparent 60%),
+    var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, p { margin: 0; }
+button { font: inherit; color: inherit; }
+code, pre, .mono { font-family: var(--mono); }
+
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+.card {
+  background: linear-gradient(180deg, rgba(20, 24, 52, 0.7), rgba(13, 16, 36, 0.92));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 32px -18px rgba(0, 0, 0, 0.7);
+  min-width: 0;
+  min-height: 0;
+}
