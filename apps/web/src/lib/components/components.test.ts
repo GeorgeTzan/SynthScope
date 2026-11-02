@@ -37,6 +37,24 @@ describe('AstGraph', () => {
     expect(screen.getByText('x')).toBeTruthy();
     expect(screen.getByLabelText('Holes')).toBeTruthy();
   });
+  it('shows what each node computes for the chosen example in "With input" view', async () => {
+    const evaluation = [
+      { inputs: { x: 3 }, expected: 9, values: { '': 9, '0': 3, '1': 3 } },
+      { inputs: { x: 4 }, expected: 16, values: { '': 15, '0': 4, '1': 4 } }
+    ];
+    const { container } = render(AstGraph, { program: '(bvmul x x)', ranks: null, evaluation });
+    expect(container.querySelectorAll('.val')).toHaveLength(0);
+    await fireEvent.click(screen.getByRole('button', { name: 'With input' }));
+    expect(container.querySelectorAll('.val')).toHaveLength(3);
+    expect(container.querySelector('.val.root text')?.textContent).toBe('9');
+    await fireEvent.change(screen.getByLabelText('Example'), { target: { value: '1' } });
+    expect(container.querySelector('.val.root text')?.textContent).toBe('15');
+    expect(container.querySelector('.val.root.bad')).not.toBeNull(); // 15 differs from the expected 16
+  });
+  it('offers no input view without engine values', () => {
+    render(AstGraph, { program: '(bvmul x x)', ranks: null });
+    expect(screen.queryByRole('button', { name: 'With input' })).toBeNull();
+  });
   it('shows a prompt before any candidate', () => {
     render(AstGraph, { program: null, ranks: null });
     expect(screen.getByText(/press run/i)).toBeTruthy();
@@ -85,6 +103,10 @@ describe('BestCandidate, Statistics, BenchmarkSummary', () => {
     render(BestCandidate, { program: '(bvnot x)', status: 'solved', signature: 'f(x)', python: 'def f(x):\n    return ~x & 15' });
     expect(screen.getByText('bvnot')).toBeTruthy();
     expect(screen.getByLabelText('Python').textContent).toContain('def f(x)');
+  });
+  it('says why there is no solution instead of a bare "no solution"', () => {
+    render(BestCandidate, { program: null, status: 'timeout', signature: 'f(x)' });
+    expect(screen.getByText(/time limit ran out/i)).toBeTruthy();
   });
   it('shows counters and the pruned share', () => {
     render(Statistics, { explored: 10, pruned: 30, elapsed: 1.5, maxDepth: 3, nodes: 40 });

@@ -127,3 +127,60 @@ def test_engine_imports_no_web() -> None:
         "sys.exit(1 if bad else 0)"
     )
     assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0
+
+
+SPEC = (
+    "(set-logic BV)\n"
+    "(define-fun hd01 ((x (BitVec 8))) (BitVec 8) (bvand x (bvsub x #x01)))\n"
+    "(synth-fun f ((x (BitVec 8))) (BitVec 8)\n"
+    "  ((Start (BitVec 8) ((bvand Start Start) (bvsub Start Start) (bvadd Start Start) x #x00 #x01))))\n"
+    "(declare-var x (BitVec 8))\n(constraint (= (hd01 x) (f x)))\n"
+)
+
+
+def test_reference_function_runs_are_verified_by_z3(client: TestClient) -> None:
+    events = collect(client, start(client, SPEC))
+    kinds = [e["kind"] for e in events]
+    seqs = [int(str(e["seq"])) for e in events]
+    assert seqs == list(range(len(seqs))), "one gapless stream even across counterexample rounds"
+    assert kinds.count("run_finished") == 1 and kinds[-1] == "run_finished"
+    assert kinds.count("solution_found") == 1
+    verified = [e for e in events if e["kind"] == "verified"]
+    assert [e["payload"] for e in verified] == [{"verified": True}]
+    assert kinds.index("solution_found") < kinds.index("verified") < kinds.index("run_finished")
+
+
+def test_example_only_runs_carry_no_verification_event(client: TestClient) -> None:
+    events = collect(client, start(client))
+    assert "verified" not in {e["kind"] for e in events}
+
+
+RARE = (
+    "(set-logic BV)\n"
+    "(define-fun rare ((x (BitVec 8))) (BitVec 8) (ite (= x #x37) #x01 #x00))\n"
+    "(synth-fun f ((x (BitVec 8))) (BitVec 8)\n"
+    "  ((Start (BitVec 8) (x #x00 #x01 #x37 (ite StartBool Start Start)))\n"
+    "   (StartBool Bool ((= Start Start)))))\n"
+    "(declare-var x (BitVec 8))\n(constraint (= (rare x) (f x)))\n"
+)
+
+
+def test_a_program_that_fits_the_samples_but_not_the_spec_is_refuted_and_the_search_continues(client: TestClient) -> None:
+    events = collect(client, start(client, RARE))
+    kinds = [e["kind"] for e in events]
+    seqs = [int(str(e["seq"])) for e in events]
+    assert seqs == list(range(len(seqs)))
+    assert "counterexample" in kinds, "the constant 0 matches every sampled input but x = 0x37"
+    assert kinds.count("solution_found") == 1 and kinds[-1] == "run_finished"
+    assert [e["payload"] for e in events if e["kind"] == "verified"] == [{"verified": True}]
+    assert events[-1]["payload"]["status"] == "solved"  # type: ignore[index]
+
+
+def test_solved_run_streams_node_values_for_every_example(client: TestClient) -> None:
+    events = collect(client, start(client))
+    kinds = [e["kind"] for e in events]
+    assert kinds.index("solution_found") < kinds.index("evaluation") < kinds.index("run_finished")
+    payload = next(e["payload"] for e in events if e["kind"] == "evaluation")
+    rows = payload["examples"]  # type: ignore[index]
+    assert len(rows) == 2 and all("" in r["values"] for r in rows)
+    assert all(r["values"][""] == r["expected"] for r in rows), "the root value is the program's output"

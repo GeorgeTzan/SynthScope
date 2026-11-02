@@ -7,10 +7,12 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
-from hope_engine.bench.runner import RunConfig, build_search
+from hope_engine.bench.runner import MAX_CEGIS_ROUNDS, RunConfig, build_search
+from hope_engine.concrete.trace import node_values
+from hope_engine.concrete.verify import Example
 from hope_engine.enumeration.search import Budget, Problem, search
 from hope_engine.syntax.ast import pretty
 from hope_engine.trace.events import Event, to_json
@@ -39,33 +41,92 @@ class Run:
 
 
 def _child(conn: Any, problem: Problem, config: RunConfig, run_id: str, pre: Callable[[], None] | None) -> None:
+    """Search, then (for reference-function problems) verify with Z3 and retry with each counterexample as a new example.
+
+    One continuous event stream: later rounds are renumbered and offset in time and candidate ids, and the closing
+    solution_found / run_finished events are held back until the program is verified.
+    """
     if pre is not None:
         pre()
-    analyzer, policy = build_search(problem, config)
-    window, count, dropped = time.monotonic(), 0, 0
+    started = time.monotonic()
+    window, count, dropped = started, 0, 0
+    seq, id_base, nodes = 0, 0, 0
+    current = problem
+    verified: bool | None = None
+    final: dict[str, Any] | None = None
 
-    def sink(event: Event) -> None:
-        nonlocal window, count, dropped
-        if event.kind in NOISY:
-            now = time.monotonic()
-            if now - window >= 1.0:
-                window, count = now, 0
-            count += 1
-            if count > MAX_NOISY_PER_SECOND:
-                dropped += 1
-                return
-        conn.send(("event", event.seq, to_json(event)))
+    def emit(kind: str, payload: dict[str, object], t: float) -> None:
+        nonlocal seq
+        conn.send(("event", seq, to_json(Event(run_id, seq, kind, payload, round(t, 4)))))
+        seq += 1
 
-    r = search(problem, analyzer, policy, Budget(config.max_nodes, config.timeout_s), sink, run_id)
+    for round_no in range(MAX_CEGIS_ROUNDS + 1):
+        round_start = time.monotonic() - started
+        max_id = -1
+
+        def sink(event: Event, round_start: float = round_start, base: int = id_base) -> None:
+            nonlocal window, count, dropped, max_id
+            if event.kind in ("solution_found", "run_finished"):
+                return  # re-emitted once the program is verified
+            if event.kind in NOISY:
+                now = time.monotonic()
+                if now - window >= 1.0:
+                    window, count = now, 0
+                count += 1
+                if count > MAX_NOISY_PER_SECOND:
+                    dropped += 1
+                    return
+            payload = dict(event.payload)
+            if event.kind == "candidate_expanded":
+                cid, parent = payload.get("id"), payload.get("parent")
+                if isinstance(cid, int):
+                    max_id = max(max_id, cid)
+                    payload["id"] = cid + base
+                if isinstance(parent, int):
+                    payload["parent"] = parent + base
+            emit(event.kind, payload, round_start + event.t)
+
+        analyzer, policy = build_search(current, config)
+        remaining = None if config.timeout_s is None else max(config.timeout_s - (time.monotonic() - started), 0.001)
+        r = search(current, analyzer, policy, Budget(max(config.max_nodes - nodes, 1), remaining), sink, run_id)
+        nodes += r.nodes
+        id_base += max_id + 1
+        now = time.monotonic() - started
+        if r.program is None or problem.spec is None:
+            final = {"status": r.status, "program": r.program}
+            break
+        try:
+            cex = problem.spec.counterexample(r.program)
+        except TimeoutError:
+            cex, verified = None, False  # the verifier gave up: report the program, but not as verified
+        else:
+            if cex is None:
+                verified = True
+        if cex is None:
+            final = {"status": r.status, "program": r.program}
+            break
+        emit("counterexample", {"program": pretty(r.program), "inputs": {k: v for k, v in cex.items()}}, now)
+        current = replace(current, examples=(*current.examples, Example(dict(cex), problem.spec.output(cex))))
+    now = time.monotonic() - started
+    if final is None:  # still refuted after the last round
+        final = {"status": "exhausted", "program": None}
+    program = final["program"]
+    if program is not None:
+        emit("solution_found", {"program": pretty(program)}, now)
+        emit("evaluation", {"examples": node_values(program, current.examples, problem.width)}, now)
+        if problem.spec is not None:
+            emit("verified", {"verified": bool(verified)}, now)
+    emit("run_finished", {"status": final["status"], "nodes": nodes}, now)
     conn.send(
         (
             "done",
             {
-                "status": r.status,
-                "nodes": r.nodes,
-                "seconds": r.seconds,
-                "program": pretty(r.program) if r.program is not None else None,
+                "status": final["status"],
+                "nodes": nodes,
+                "seconds": now,
+                "program": pretty(program) if program is not None else None,
                 "dropped": dropped,
+                "verified": verified if problem.spec is not None and program is not None else None,
             },
         )
     )

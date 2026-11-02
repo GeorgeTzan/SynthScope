@@ -65,7 +65,7 @@
       </div>
       <div class="right">
         <SynthLog entries={run.events} status={run.status} elapsed={run.elapsed} depthOf={(id) => depthById.get(Number(id)) ?? 0} />
-        <BestCandidate program={run.best} status={run.status} {signature} {python} />
+        <BestCandidate program={run.best} status={run.status} {signature} {python} verified={run.verified} />
         <Statistics explored={run.explored} pruned={run.pruned} elapsed={run.elapsed} maxDepth={run.maxDepth} nodes={run.nodes} />
       </div>
     </main>

@@ -46,3 +46,18 @@ describe('describeEvent', () => {
     expect(describeEvent(ev('future_thing'), ctx).title).toBe('future_thing');
   });
 });
+
+describe('verification events', () => {
+  const ctx = { depthOf: () => 0 };
+  const ev = (kind: string, payload: Record<string, unknown>) => ({ schema_version: 1, run_id: 'r', seq: 0, kind, payload });
+  it('explains a counterexample and a verified result', () => {
+    const cex = describeEvent(ev('counterexample', { program: '(bvnot x)', inputs: { x: 3 } }), ctx);
+    expect(cex.title).toBe('Counterexample found');
+    expect(cex.detail).toContain('x = 3');
+    expect(describeEvent(ev('verified', { verified: true }), ctx).tone).toBe('good');
+    expect(describeEvent(ev('verified', { verified: false }), ctx).title).toBe('Not verified');
+  });
+  it('summarises the evaluation event', () => {
+    expect(describeEvent(ev('evaluation', { examples: [{}, {}] }), ctx).detail).toBe('2 examples, value at every node');
+  });
+});

@@ -237,4 +237,22 @@ describe('RunState derived views', () => {
       vi.useRealTimers();
     }
   });
+
+  it('records the verification verdict and clears it on a new run', async () => {
+    const { state } = make();
+    await state.start('p', cfg);
+    FakeSocket.last.push(ev(0, 'verified', { verified: true }));
+    expect(state.verified).toBe(true);
+    await state.start('p', cfg);
+    expect(state.verified).toBeNull();
+  });
+
+  it('keeps the per-node values from the engine and clears them on a new run', async () => {
+    const { state } = make();
+    await state.start('p', cfg);
+    FakeSocket.last.push(ev(0, 'evaluation', { examples: [{ inputs: { x: 1 }, expected: 2, values: { '': 2 } }] }));
+    expect(state.evaluation?.[0].values['']).toBe(2);
+    await state.start('p', cfg);
+    expect(state.evaluation).toBeNull();
+  });
 });

@@ -1,4 +1,4 @@
-import type { AnalysisPayload, Candidate, HoleRanks, RunConfig, RunStatus, SynthEvent } from '../types';
+import type { AnalysisPayload, Candidate, EvaluatedExample, HoleRanks, RunConfig, RunStatus, SynthEvent } from '../types';
 
 export interface Deps {
   fetch: typeof fetch;
@@ -33,6 +33,10 @@ export class RunState {
   maxDepth = $state(0);
   candidates = $state<Candidate[]>([]);
   analysis = $state<AnalysisPayload | null>(null);
+  /** null: example-only problem; true: Z3 found no counterexample to the reference function; false: not established. */
+  verified = $state<boolean | null>(null);
+  /** Node values of the solved program per example; null until a solution arrives. */
+  evaluation = $state<EvaluatedExample[] | null>(null);
 
   private lastSeq = -1;
   private depthOf = new Map<number, number>();
@@ -61,6 +65,8 @@ export class RunState {
     this.maxDepth = 0;
     this.candidates = [];
     this.analysis = null;
+    this.verified = null;
+    this.evaluation = null;
     this.depthOf = new Map();
     this.lastSeq = -1;
   }
@@ -115,6 +121,12 @@ export class RunState {
         break;
       case 'hole_ranked':
         this.ranks = p as unknown as HoleRanks;
+        break;
+      case 'evaluation':
+        this.evaluation = Array.isArray(p.examples) ? (p.examples as EvaluatedExample[]) : null;
+        break;
+      case 'verified':
+        this.verified = p.verified === true;
         break;
       case 'solution_found':
         this.best = String(p.program ?? '');

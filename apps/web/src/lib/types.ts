@@ -63,3 +63,10 @@ export interface Tree {
   hole: string | null;
   children: Tree[];
 }
+
+/** One example evaluated by the engine: the value at every node of the solved program, keyed by dotted child path ('' = root). */
+export interface EvaluatedExample {
+  inputs: Record<string, number | string>;
+  expected: number | string;
+  values: Record<string, number | string | null>;
+}

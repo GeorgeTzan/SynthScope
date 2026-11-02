@@ -3,10 +3,22 @@
   import { buildView } from '../holes';
   import { opName } from '../opnames';
   import type { LaidOutNode } from '../layout';
-  import type { HoleRanks } from '../types';
+  import { describeInputs, formatNodeValue, matches } from '../evalview';
+  import type { EvaluatedExample, HoleRanks } from '../types';
   import Icon from './Icon.svelte';
 
-  let { program, ranks, running = false }: { program: string | null; ranks: HoleRanks | null; running?: boolean } = $props();
+  let {
+    program,
+    ranks,
+    running = false,
+    evaluation = null
+  }: { program: string | null; ranks: HoleRanks | null; running?: boolean; evaluation?: EvaluatedExample[] | null } = $props();
+
+  // "With input" shows what every node computes for one example; needs the engine's per-node values
+  let withInput = $state(false);
+  let exIndex = $state(0);
+  let row = $derived(withInput && evaluation && evaluation.length > 0 ? evaluation[Math.min(exIndex, evaluation.length - 1)] : null);
+  const valueAt = (n: LaidOutNode) => row?.values[n.path.join('.')];
 
   const SUB = '₀₁₂₃₄₅₆₇₈₉';
   const sub = (n: number) => [...String(n)].map((d) => SUB[Number(d)]).join('');
@@ -54,6 +66,19 @@
   {#if view.error}
     <p class="note" role="alert">Cannot draw program: {view.error}</p>
   {:else if view.layout}
+    {#if evaluation && evaluation.length > 0}
+      <div class="modebar">
+        <div class="seg" role="group" aria-label="View">
+          <button class:on={!withInput} onclick={() => (withInput = false)}>Structure</button>
+          <button class:on={withInput} onclick={() => (withInput = true)}>With input</button>
+        </div>
+        {#if withInput}
+          <select aria-label="Example" bind:value={exIndex}>
+            {#each evaluation as ex, i (i)}<option value={i}>{describeInputs(ex)}</option>{/each}
+          </select>
+        {/if}
+      </div>
+    {/if}
     <div class="tools" role="group" aria-label="Zoom">
       <button aria-label="Fit to view" onclick={() => (fit = true)}><Icon name="expand" size={16} /></button>
       <span class="sep"></span>
@@ -112,6 +137,15 @@
             {:else}
               <rect width={n.w} height={n.h} rx="12" class="box" filter="url(#glow)" fill="url(#opfill)" />
               <text x={n.w / 2} y={n.h / 2 + 6} text-anchor="middle" class="leaf-text">{formatValue(n.label).main}</text>
+            {/if}
+            {#if row && kind !== 'hole'}
+              {@const text = formatNodeValue(valueAt(n))}
+              {@const bw = Math.max(26, text.length * 7 + 12)}
+              <g class="val" class:root={n.path.length === 0} class:bad={n.path.length === 0 && !matches(row)} transform={`translate(${n.w - bw + 6} ${n.h - 6})`}>
+                <title>{n.path.length === 0 ? `result ${text}, expected ${formatNodeValue(row.expected)}` : `value ${text}`}</title>
+                <rect width={bw} height="18" rx="9" />
+                <text x={bw / 2} y="13" text-anchor="middle">{text}</text>
+              </g>
             {/if}
           </g>
         {/each}
@@ -175,8 +209,18 @@
     overflow: hidden;
     display: flex;
   }
-  .scroller { flex: 1; overflow: auto; display: grid; place-items: center; padding: 0.5rem 0.5rem 0.5rem 0.5rem; }
+  .scroller { flex: 1; overflow: auto; display: grid; place-items: center; padding: 3rem 0.5rem 0.5rem 0.5rem; }
   .scroller > svg { display: block; margin: auto; overflow: visible; }
+  .modebar { position: absolute; top: 0.7rem; left: 0.8rem; z-index: 2; display: flex; gap: 0.5rem; align-items: center; }
+  .seg { display: inline-flex; padding: 0.2rem; gap: 0.15rem; border: 1px solid var(--line-2); border-radius: 10px; background: rgba(12, 15, 32, 0.9); }
+  .seg button { background: transparent; border: 0; color: var(--muted); padding: 0.3rem 0.7rem; border-radius: 7px; cursor: pointer; font-size: 0.82rem; }
+  .seg button.on { background: var(--violet-soft); color: var(--text); }
+  .modebar select { background: rgba(12, 15, 32, 0.9); color: var(--text); border: 1px solid var(--line-2); border-radius: 10px; padding: 0.4rem 0.6rem; font: inherit; font-size: 0.8rem; font-family: var(--mono); max-width: 14rem; }
+  .val rect { fill: #0b1a22; stroke: var(--teal); stroke-width: 1.2; }
+  .val text { fill: var(--teal); font-size: 11px; font-family: var(--mono); font-weight: 600; }
+  .val.root rect { fill: #0f2a26; }
+  .val.bad rect { stroke: var(--rose); fill: #2a0f18; }
+  .val.bad text { fill: var(--rose); }
   .tools { position: absolute; top: 0.7rem; right: 0.8rem; z-index: 2; display: flex; align-items: center; gap: 0.15rem; padding: 0.25rem; border: 1px solid var(--line-2); border-radius: 10px; background: rgba(12, 15, 32, 0.9); }
   .tools button { background: transparent; border: 0; color: var(--muted); padding: 0.35rem; border-radius: 7px; cursor: pointer; display: grid; place-items: center; }
   .tools button:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }

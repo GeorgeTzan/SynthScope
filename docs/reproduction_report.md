@@ -18,7 +18,7 @@ Status date: 2026-11-01. **No claim about the paper's benchmark results is made 
 | SyGuS-IF import | `sygus/parser.py` | hand-written fixtures; line/column errors |
 | Ablations: HOPE (1/3 holes), leftmost, meta off | `bench/`, `cli.py`, `scripts/` | harness runs; see results below |
 
-Test counts at the time of writing: 565 Python tests, 65 dashboard tests, all passing.
+Test counts at the time of writing: 568 Python tests, 93 dashboard tests, all passing.
 
 ## Measured evidence
 
@@ -54,10 +54,13 @@ authors' OCaml (strings run at 150-300 nodes/s) so most problems time out before
 4. **Search details not in the paper:** no restart with larger component sets; unproductive partial programs dropped; per-step
    child cap at `max_nodes`; among ranked hole subsets the smallest is chosen. Rank-3 picks use a seeded RNG.
 5. **Meta soundness is tested, not proved**, on random small programs (width 2, strings over {a,b}).
-6. **Dashboard** follows the mockup (examples, grammar, AST graph, holes, abstract state, log, stats, chart, benchmark summary),
+6. **Dashboard verification.** For reference-function problems the dashboard worker now runs the same Z3 counterexample loop as the
+   benchmark runner (counterexamples appear in the log as new examples; the result is badged *Verified*, or *Matches examples only* if
+   Z3 gave up). Example-only problems are satisfied by definition and carry no badge.
+7. **Dashboard** follows the mockup (examples, grammar, AST graph, holes, abstract state, log, stats, chart, benchmark summary),
    all driven by real engine events; event counts may undercount because noisy events are throttled to 300/s. Checked in real
    Chrome via Playwright screenshots, not by automated browser tests.
-7. Python is slower than the authors' OCaml; no timing parity is claimed.
+8. Python is slower than the authors' OCaml; no timing parity is claimed.
 
 ## Not done
 

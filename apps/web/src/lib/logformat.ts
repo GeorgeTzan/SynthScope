@@ -68,6 +68,16 @@ export function describeEvent(e: SynthEvent, ctx: LogContext): LogLine {
       };
     case 'solution_found':
       return { icon: 'check', title: 'Solution found', detail: readable(p.program), tone: 'good' };
+    case 'counterexample': {
+      const inputs = p.inputs && typeof p.inputs === 'object' ? Object.entries(p.inputs as Record<string, unknown>).map(([k, v]) => `${k} = ${String(v)}`).join(', ') : '';
+      return { icon: 'xcircle', title: 'Counterexample found', detail: `${readable(p.program)} fails at ${inputs}; searching again with it`, tone: 'bad' };
+    }
+    case 'evaluation':
+      return { icon: 'table', title: 'Evaluated on the examples', detail: `${plural(list(p.examples).length, 'example')}, value at every node`, tone: 'info' };
+    case 'verified':
+      return p.verified
+        ? { icon: 'check', title: 'Verified against the specification', detail: 'Z3 found no counterexample', tone: 'good' }
+        : { icon: 'info', title: 'Not verified', detail: 'Z3 could not decide; the program only matches the examples', tone: 'neutral' };
     case 'run_finished':
       return { icon: 'clock', title: `Run finished: ${String(p.status)}`, detail: `${Number(p.nodes ?? 0)} nodes expanded`, tone: p.status === 'solved' ? 'good' : 'neutral' };
     default:

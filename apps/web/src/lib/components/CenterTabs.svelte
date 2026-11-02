@@ -36,7 +36,7 @@
   </div>
   <div class="view" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
     {#if tab === 'ast'}
-      <AstGraph {program} ranks={run.ranks} running={run.status === 'running'} />
+      <AstGraph {program} ranks={run.ranks} running={run.status === 'running'} evaluation={run.status === 'solved' ? run.evaluation : null} />
     {:else if tab === 'tree'}
       <SearchTreeView candidates={run.candidates} />
     {:else if tab === 'analysis'}
