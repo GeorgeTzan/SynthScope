@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -139,26 +139,50 @@ def build_search(problem: Problem, config: RunConfig) -> tuple[_CountingAnalyzer
     return _CountingAnalyzer(base), _CountingPolicy(inner)
 
 
+MAX_CEGIS_ROUNDS = 12
+
+
 def _work(problem: Problem, config: RunConfig, pre: Callable[[], None] | None) -> dict[str, Any]:
     if pre is not None:
         pre()
-    analyzer, policy = build_search(problem, config)
-    r = search(problem, analyzer, policy, Budget(config.max_nodes, config.timeout_s))
-    status: Status = r.status
+    current, nodes, analyzer_calls, meta_calls, seconds = problem, 0, 0, 0, 0.0
+    status: Status = "exhausted"
+    program: Node | None = None
+    verified = True
+    for _ in range(MAX_CEGIS_ROUNDS + 1):
+        analyzer, policy = build_search(current, config)
+        r = search(current, analyzer, policy, Budget(config.max_nodes, config.timeout_s))
+        nodes += r.nodes
+        analyzer_calls += analyzer.calls
+        meta_calls += policy.calls if config.policy == "hope" else 0
+        seconds += r.seconds
+        status, program = r.status, r.program
+        if program is None or problem.spec is None:
+            break
+        try:
+            cex = problem.spec.counterexample(program)
+        except TimeoutError:
+            verified = False
+            break
+        if cex is None:
+            break
+        current = replace(current, examples=(*current.examples, Example(dict(cex), problem.spec.output(cex))))
+    else:
+        verified = False  # still refuted after the last round
     validated = False
-    if r.program is not None:
-        validated = validate(r.program, problem.examples, problem.width)
+    if program is not None:
+        validated = verified and validate(program, current.examples, problem.width)
         if not validated:
             status = "invalid"
     return {
         "status": status,
         "validated": validated,
-        "nodes": r.nodes,
-        "analyzer_calls": analyzer.calls,
-        "meta_calls": policy.calls if config.policy == "hope" else 0,
-        "seconds": r.seconds,
-        "program": pretty(r.program) if r.program is not None else None,
-        "program_size": size(r.program) if r.program is not None else None,
+        "nodes": nodes,
+        "analyzer_calls": analyzer_calls,
+        "meta_calls": meta_calls,
+        "seconds": seconds,
+        "program": pretty(program) if program is not None else None,
+        "program_size": size(program) if program is not None else None,
     }
 
 

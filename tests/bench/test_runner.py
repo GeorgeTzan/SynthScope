@@ -84,3 +84,39 @@ def test_jsonl_has_environment_metadata(tmp_path: Path) -> None:
 def test_same_seed_same_record() -> None:
     a, b = run_file(STR, CFG), run_file(STR, CFG)
     assert (a.program, a.nodes, a.analyzer_calls, a.meta_calls) == (b.program, b.nodes, b.analyzer_calls, b.meta_calls)
+
+
+class _IdentityOracle:
+    """Reference function f(x) = x. Any program other than the variable x has a counterexample."""
+
+    def output(self, inputs: dict[str, int]) -> int:
+        return inputs["x"]
+
+    def counterexample(self, program: object) -> dict[str, int] | None:
+        from hope_engine.syntax.ast import Var
+
+        return None if program == Var("x") else {"x": 5}
+
+
+def test_spec_problem_adds_counterexamples_until_verified() -> None:
+    from hope_engine.concrete.verify import Example
+    from hope_engine.enumeration.search import Problem
+    from hope_engine.syntax.ast import Const, Var
+    from hope_engine.syntax.grammar import Grammar, Production
+
+    g = Grammar((Production("S", Const(0, "bv")), Production("S", Var("x"))), "S")
+    p = Problem(g, (Example({"x": 0}, 0),), "bv", 4, _IdentityOracle())
+    r = runner.run_problem(p, "id", CFG)
+    assert r.status == "solved" and r.validated and r.program == "x"
+
+
+def test_spec_problem_that_cannot_be_verified_is_not_solved() -> None:
+    from hope_engine.concrete.verify import Example
+    from hope_engine.enumeration.search import Problem
+    from hope_engine.syntax.ast import Const
+    from hope_engine.syntax.grammar import Grammar, Production
+
+    g = Grammar((Production("S", Const(0, "bv")),), "S")  # x is not expressible
+    p = Problem(g, (Example({"x": 0}, 0),), "bv", 4, _IdentityOracle())
+    r = runner.run_problem(p, "id", CFG)
+    assert r.status != "solved" and not r.validated

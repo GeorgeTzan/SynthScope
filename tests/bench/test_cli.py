@@ -33,3 +33,27 @@ def test_bench_then_report_and_compare(tmp_path: Path, capsys: pytest.CaptureFix
     assert capsys.readouterr().out.count("solved 2/2") == 2
     assert main(["compare", str(a), str(b), "--csv", str(tmp_path / "p.csv")]) == 0
     assert (tmp_path / "p.csv").read_text().count("\n") == 3
+
+
+def _suite(tmp_path: Path, n: int) -> Path:
+    d = tmp_path / "suite"
+    d.mkdir()
+    for i in range(n):
+        (d / f"p{i:02d}.sl").write_text((FIX / "bv.sl").read_text())
+    return d
+
+
+def test_bench_limit_samples_the_same_files_for_the_same_seed(tmp_path: Path) -> None:
+    d = _suite(tmp_path, 8)
+    a, b, c = tmp_path / "a.jsonl", tmp_path / "b.jsonl", tmp_path / "c.jsonl"
+    assert main(["bench", str(d), "--limit", "3", "--sample-seed", "1", "--out", str(a)]) == 0
+    assert main(["bench", str(d), "--limit", "3", "--sample-seed", "1", "--policy", "leftmost", "--out", str(b)]) == 0
+    assert main(["bench", str(d), "--limit", "3", "--sample-seed", "2", "--out", str(c)]) == 0
+    names = [r.benchmark for r in load_records(a)]
+    assert len(names) == 3 and names == [r.benchmark for r in load_records(b)]
+    assert names != [r.benchmark for r in load_records(c)]
+
+
+def test_bench_rejects_a_non_positive_limit(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        main(["bench", str(_suite(tmp_path, 2)), "--limit", "0", "--out", str(tmp_path / "x.jsonl")])

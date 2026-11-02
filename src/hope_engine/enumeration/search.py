@@ -27,12 +27,20 @@ from hope_engine.syntax.grammar import Grammar
 from hope_engine.trace.events import Emitter, EventSink
 
 
+class SpecOracle(Protocol):
+    """Reference function behind a specification-style problem (see sygus/spec.py)."""
+
+    def output(self, inputs: dict[str, int]) -> int: ...
+    def counterexample(self, program: Node) -> dict[str, int] | None: ...
+
+
 @dataclass(frozen=True)
 class Problem:
     grammar: Grammar
     examples: tuple[Example, ...]
     domain: Literal["bv", "str"]
     width: int | None = None
+    spec: SpecOracle | None = None
 
 
 @dataclass(frozen=True)

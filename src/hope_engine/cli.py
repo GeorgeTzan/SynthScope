@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import random
 from pathlib import Path
 
 from hope_engine.bench.report import paired_csv, render_text, summarize
@@ -15,6 +16,13 @@ def _add_run_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--timeout", type=float, default=60.0)
     p.add_argument("--nodes", type=int, default=100_000)
     p.add_argument("--seed", type=int, default=0)
+
+
+def _positive(text: str) -> int:
+    n = int(text)
+    if n < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return n
 
 
 def _config(a: argparse.Namespace) -> RunConfig:
@@ -30,6 +38,8 @@ def main(argv: list[str] | None = None) -> int:
     b = sub.add_parser("bench", help="run every .sl file in a directory (or the given files)")
     b.add_argument("inputs", type=Path, nargs="+")
     b.add_argument("--out", type=Path, required=True)
+    b.add_argument("--limit", type=_positive, help="run a seeded random sample of this many problems")
+    b.add_argument("--sample-seed", type=int, default=0, help="seed for --limit (same seed, same problems)")
     _add_run_args(b)
     r = sub.add_parser("report", help="summarize JSONL result files")
     r.add_argument("files", type=Path, nargs="+")
@@ -45,6 +55,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if rec.status == "solved" else 2
     if args.cmd == "bench":
         paths = sorted(p for i in args.inputs for p in (i.glob("*.sl") if i.is_dir() else [i]))
+        if args.limit is not None and args.limit < len(paths):
+            paths = sorted(random.Random(args.sample_seed).sample(paths, args.limit))
         recs = run_suite(paths, _config(args), args.out)
         print(render_text(summarize(recs)))
         return 0

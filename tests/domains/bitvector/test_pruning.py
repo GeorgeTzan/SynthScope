@@ -141,3 +141,28 @@ def test_pruned_search_keeps_every_solution_found_without_pruning(ops: tuple[str
             assert pruned.status == "solved", (ops, a, b)
         if pruned.program is not None:
             assert satisfies(pruned.program, problem.examples, w)
+
+
+def test_component_values_are_computed_once() -> None:
+    """The line-14 filter asks about the same complete components for every hole; the value is cached."""
+    from hope_engine.concrete.verify import Example
+    from hope_engine.domains.analysis import DomainAnalyzer
+    from hope_engine.domains.bitvector.ops import BitvectorDomain
+    from hope_engine.syntax.ast import Const, Hole, Op, Var
+
+    class Counting(BitvectorDomain):
+        calls = 0
+
+        def forward(self, op, args):  # type: ignore[no-untyped-def]
+            Counting.calls += 1
+            return super().forward(op, args)
+
+    analyzer = DomainAnalyzer(Counting(4))
+    exs = (Example({"x": 3}, 5),)
+    partial = Op("bvadd", (Hole("S"), Const(1, "bv")))
+    res = analyzer.analyze(partial, exs)
+    comp = Op("bvadd", (Var("x"), Const(1, "bv")))
+    first = analyzer.compatible(res, partial, (0,), comp, exs)
+    before = Counting.calls
+    again = analyzer.compatible(res, partial, (0,), comp, exs)
+    assert first == again and Counting.calls == before

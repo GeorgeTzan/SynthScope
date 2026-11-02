@@ -8,11 +8,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from hope_engine.concrete.bitvector import BINARY, BOOL_OPS, UNARY, UnsupportedOperator
 from hope_engine.concrete.string import OPS
 from hope_engine.concrete.verify import Example
 from hope_engine.enumeration.search import Problem
+from hope_engine.sygus.spec import Spec, sexpr_to_z3
 from hope_engine.syntax.ast import Const, Var
 from hope_engine.syntax.grammar import Grammar, Production
 
@@ -208,13 +210,53 @@ def _constraint(x: Sx, fname: str, params: list[str], domain: str) -> Example:
     return Example(dict(zip(params, vals[:-1], strict=True)), vals[-1])
 
 
+def _spec_call(x: Sx, defs: dict[str, SList], fname: str) -> tuple[SList, list[str], list[str]] | None:
+    """Match `(= (spec v...) (f v...))` (either order); returns the define-fun and both argument lists."""
+    if not (isinstance(x, SList) and len(x.items) == 3 and isinstance(x.items[0], Atom) and x.items[0].tok.text == "="):
+        return None
+    calls = [c for c in x.items[1:] if isinstance(c, SList) and c.items and isinstance(c.items[0], Atom)]
+    if len(calls) != 2:
+        return None
+    by_name = {_sym(c.items[0]): c for c in calls}
+    if fname not in by_name or len(by_name) != 2:
+        return None
+    other = next(n for n in by_name if n != fname)
+    if other not in defs:
+        return None
+    return defs[other], [_sym(a) for a in by_name[other].items[1:]], [_sym(a) for a in by_name[fname].items[1:]]
+
+
+def _build_spec(call: tuple[SList, list[str], list[str]], params: list[str], width: int | None, at: Sx) -> Spec:
+    import z3
+
+    define, spec_args, f_args = call
+    if width is None:
+        raise _err("a reference-function spec needs a bitvector signature", at)
+    if f_args != params and sorted(f_args) != sorted(params):
+        raise _err("the synthesized function must be called on its own variables", at)
+    if len(set(f_args)) != len(f_args) or len(define.items) != 5 or not isinstance(define.items[2], SList):
+        raise _err("unsupported reference function", define)
+    spec_params = [_sym(p.items[0]) for p in define.items[2].items if isinstance(p, SList) and p.items]
+    if len(spec_params) != len(spec_args):
+        raise _err("wrong number of arguments to the reference function", define)
+    variables = {p: z3.BitVec(p, width) for p in params}
+    # the i-th call argument of f is bound to the i-th parameter of f
+    var_for_name = {f_args[i]: variables[params[i]] for i in range(len(params))}
+    env = {sp: var_for_name[a] for sp, a in zip(spec_params, spec_args, strict=True)}
+    body = sexpr_to_z3(define.items[4], env, width, lambda n: f"{_pos(n)[0]}:{_pos(n)[1]}")
+    return Spec(tuple(params), width, body, variables)
+
+
 def parse_sygus(text: str) -> Problem:
     forms = _read(_tokens(text))
     synth: SList | None = None
     constraints: list[SList] = []
+    defs: dict[str, SList] = {}
     for f in forms:
         if isinstance(f, SList) and f.items and isinstance(f.items[0], Atom):
             head = f.items[0].tok.text
+            if head == "define-fun" and len(f.items) >= 2 and isinstance(f.items[1], Atom):
+                defs[f.items[1].tok.text] = f
             if head == "synth-fun":
                 if synth is not None:
                     raise _err("only one synth-fun is supported", f)
@@ -268,10 +310,22 @@ def parse_sygus(text: str) -> Problem:
                 prods.append(made)
     prods = _inline_chains(prods, chains)
     start = _sym(rules[0].items[0]) if isinstance(rules[0], SList) else ""
-    examples = tuple(_constraint(c.items[1], fname, params, domain) for c in constraints if len(c.items) == 2)
+    bodies = [c.items[1] for c in constraints if len(c.items) == 2]
+    calls = [_spec_call(b, defs, fname) for b in bodies]
+    kind: Literal["bv", "str"] = "bv" if domain == "bv" else "str"
+    if any(c is not None for c in calls):
+        if any(c is None for c in calls):
+            raise _err("cannot mix reference-function and example constraints", synth)
+        if len(calls) != 1 or domain != "bv":
+            raise _err("exactly one bitvector reference-function constraint is supported", synth)
+        call = calls[0]
+        assert call is not None
+        spec = _build_spec(call, params, width, bodies[0])
+        return Problem(Grammar(tuple(prods), start), spec.sample(), kind, width, spec)
+    examples = tuple(_constraint(b, fname, params, domain) for b in bodies)
     if not examples:
         raise _err("no constraints", synth)
-    return Problem(Grammar(tuple(prods), start), examples, "bv" if domain == "bv" else "str", width)
+    return Problem(Grammar(tuple(prods), start), examples, kind, width)
 
 
 def load_problem(path: Path) -> Problem:

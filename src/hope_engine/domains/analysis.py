@@ -82,6 +82,18 @@ class DomainAnalyzer[A]:
 
     def __init__(self, domain: Domain[A]) -> None:
         self.domain = domain
+        # Abstract value of a complete component per example, keyed by object identity: the component map keeps
+        # the objects alive, and the stored node pins the id.  [ponytail: unbounded; one entry per component.]
+        self._values: dict[tuple[int, int], tuple[Node, A]] = {}
+
+    def _component_value(self, node: Node, i: int, env: Mapping[str, int | str]) -> A:
+        hit = self._values.get((id(node), i))
+        if hit is not None:
+            return hit[1]
+        kids = [self._component_value(a, i, env) for a in node.args] if isinstance(node, Op) else []
+        value = _leaf_or_forward(self.domain, node, env, kids)
+        self._values[(id(node), i)] = (node, value)
+        return value
 
     def analyze(self, partial: Node, examples: tuple[Example, ...]) -> AnalysisResult:
         per_example = [analyze_underlying(self.domain, partial, ex.inputs, ex.output) for ex in examples]
@@ -103,6 +115,6 @@ class DomainAnalyzer[A]:
         pres = result.preconditions[pos]
         assert isinstance(pres, tuple)
         return all(
-            not self.domain.is_bottom(self.domain.meet(forward_value(self.domain, component, ex.inputs), pre))
-            for ex, pre in zip(examples, pres, strict=True)
+            not self.domain.is_bottom(self.domain.meet(self._component_value(component, i, ex.inputs), pre))
+            for i, (ex, pre) in enumerate(zip(examples, pres, strict=True))
         )
