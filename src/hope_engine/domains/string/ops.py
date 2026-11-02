@@ -341,7 +341,28 @@ def backward(op: str, result: A, args: Sequence[A], i: int) -> A:
     return top
 
 
-__all__ = ["SIGNATURES", "StringDomain", "backward", "forward"]
+def _range(lo: int, hi: int) -> str:
+    if lo <= -INF:
+        return "(-∞, ∞)" if hi >= INF else f"(-∞, {hi}]"
+    return f"[{lo}, ∞)" if hi >= INF else f"[{lo}, {hi}]"
+
+
+def show(a: A) -> str:
+    """Short rendering of an abstract string or int value."""
+    if a is TOP:
+        return "⊤"
+    if a is BOT:
+        return "⊥"
+    if isinstance(a, Itv):
+        return _range(a.lo, a.hi)
+    assert isinstance(a, Str)
+    if a.lo == a.hi and "*" not in a.pre:
+        return f'"{a.pre}"'
+    parts = ([f'prefix "{a.pre}"'] if a.pre else []) + ([f'suffix "{a.suf}"'] if a.suf else [])
+    return ", ".join([*parts, f"len {_range(a.lo, a.hi)}"])
+
+
+__all__ = ["SIGNATURES", "StringDomain", "backward", "forward", "show"]
 
 
 class StringDomain:
@@ -365,6 +386,9 @@ class StringDomain:
 
     def meet(self, a: A, b: A) -> A:
         return meet(a, b)
+
+    def show(self, a: A) -> str:
+        return show(a)
 
     def forward(self, op: str, args: Sequence[A]) -> A:
         return forward(op, args)

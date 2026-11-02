@@ -120,3 +120,15 @@ def test_spec_problem_that_cannot_be_verified_is_not_solved() -> None:
     p = Problem(g, (Example({"x": 0}, 0),), "bv", 4, _IdentityOracle())
     r = runner.run_problem(p, "id", CFG)
     assert r.status != "solved" and not r.validated
+
+
+def test_search_built_for_the_api_emits_analysis_events() -> None:
+    """The counting wrapper must not hide the analyzer's `describe`, or the dashboard gets no abstract states."""
+    from hope_engine.enumeration.search import Budget, search
+    from hope_engine.trace.events import Event
+
+    problem = load_problem(BV)
+    analyzer, policy = runner.build_search(problem, CFG)
+    got: list[Event] = []
+    search(problem, analyzer, policy, Budget(500, None), got.append)
+    assert any(e.kind == "analysis" for e in got)

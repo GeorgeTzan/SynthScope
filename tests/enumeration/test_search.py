@@ -1,3 +1,5 @@
+from typing import cast
+
 from hope_engine.concrete.verify import Example, satisfies
 from hope_engine.enumeration.search import (
     Budget,
@@ -97,3 +99,37 @@ def test_ill_typed_string_grammar_is_unsupported_not_a_crash() -> None:
     p = Problem(g, (Example({"x": "ab"}, "abab"),), "str", None)
     r = search(p, NullAnalyzer(), LeftmostPolicy(), Budget(2000, None))
     assert r.status == "unsupported"
+
+
+def test_events_carry_time_and_a_parent_chain() -> None:
+    got: list[Event] = []
+    _, r = run(REC, (Example({"x": 3}, 4),), sink=got.append)
+    assert r.status == "solved"
+    assert all(e.t >= 0 for e in got) and [e.t for e in got] == sorted(e.t for e in got)
+    expanded = [e.payload for e in got if e.kind == "candidate_expanded"]
+    assert expanded[0]["parent"] is None and expanded[0]["id"] == 0
+    ids = {p["id"] for p in expanded}
+    assert all(p["parent"] in ids for p in expanded[1:])
+    assert len(ids) == len(expanded)
+
+
+def test_analysis_event_describes_node_states() -> None:
+    from hope_engine.domains.analysis import DomainAnalyzer
+    from hope_engine.domains.bitvector.ops import BitvectorDomain
+
+    got: list[Event] = []
+    p = Problem(REC, (Example({"x": 3}, 4),), "bv", 4)
+    search(p, DomainAnalyzer(BitvectorDomain(4)), LeftmostPolicy(), Budget(200, None), got.append)
+    analysis = [e.payload for e in got if e.kind == "analysis"]
+    assert analysis, "the analyzer describes its states"
+    first = analysis[0]
+    assert first["inputs"] == {"x": 3} and first["output"] == 4
+    nodes = cast("list[dict[str, object]]", first["nodes"])
+    assert nodes[0]["path"] == [] and nodes[0]["state"] == "#x4"  # the root hole is refined to the output
+    assert {"path", "label", "state"} <= set(nodes[0])
+
+
+def test_null_analyzer_emits_no_analysis_events() -> None:
+    got: list[Event] = []
+    run(REC, (Example({"x": 3}, 4),), sink=got.append)
+    assert not any(e.kind == "analysis" for e in got)

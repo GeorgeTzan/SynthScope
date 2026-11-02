@@ -53,6 +53,7 @@ class Budget:
 class AnalysisResult:
     infeasible: bool
     preconditions: dict[Path, object] = field(default_factory=dict)
+    states: dict[Path, object] = field(default_factory=dict)  # abstract value of every node, first example
 
 
 class Analyzer(Protocol):
@@ -164,6 +165,7 @@ def search(
         em.emit("run_finished", {"status": "exhausted", "nodes": 0})
         return SearchResult("exhausted", None, 0, time.monotonic() - start)
     queue: list[tuple[int, int, Node]] = [(size(root), 0, root)]
+    parent_of: dict[int, int] = {}  # queue id -> id of the candidate it was made from (only kept when tracing)
     seen: set[Node] = {root}
     counter = 1
     nodes = 0
@@ -178,7 +180,7 @@ def search(
                 break
             if nodes >= budget.max_nodes:
                 break
-            _, _, partial = heapq.heappop(queue)
+            _, cid, partial = heapq.heappop(queue)
             nodes += 1
             hs = holes(partial)
             if not hs:
@@ -187,8 +189,14 @@ def search(
                     em.emit("solution_found", {"program": pretty(partial)})
                     break
                 continue
-            em.emit("candidate_expanded", {"program": pretty(partial), "holes": len(hs)})
+            em.emit(
+                "candidate_expanded",
+                {"program": pretty(partial), "holes": len(hs), "id": cid, "parent": parent_of.get(cid)},
+            )
             result = analyzer.analyze(partial, problem.examples)
+            describe = getattr(analyzer, "describe", None) if em.enabled else None
+            if describe is not None:
+                em.emit("analysis", describe(result, partial, problem.examples))
             if result.infeasible:
                 em.emit("pruned", {"program": pretty(partial), "reason": "infeasible"})
                 continue
@@ -215,6 +223,8 @@ def search(
                 ):
                     continue
                 seen.add(child)
+                if em.enabled:
+                    parent_of[counter] = cid
                 heapq.heappush(queue, (size(child), counter, child))
                 counter += 1
             em.emit("hole_filled", {"positions": [list(p) for p in positions], "noprune": noprune})

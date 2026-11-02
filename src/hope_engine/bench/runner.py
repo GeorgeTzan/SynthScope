@@ -81,6 +81,12 @@ class _CountingAnalyzer:
     ) -> bool:
         return self.inner.compatible(result, partial, pos, component, examples)
 
+    def __getattr__(self, name: str) -> Any:
+        """Optional analyzer extras (`describe`, for the dashboard) pass through to the wrapped analyzer."""
+        if name == "describe":
+            return self.inner.describe  # type: ignore[attr-defined]  # AttributeError if the analyzer has none
+        raise AttributeError(name)
+
 
 class _CountingPolicy:
     def __init__(self, inner: HolePolicy) -> None:

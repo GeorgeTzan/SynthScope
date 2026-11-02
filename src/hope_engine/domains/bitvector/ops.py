@@ -320,6 +320,19 @@ class BitvectorDomain:
     def meet(self, a: BV, b: BV) -> BV:
         return meet(a, b)
 
+    def show(self, a: BV) -> str:
+        if a.is_bottom:
+            return "⊥"
+        if a.is_const:
+            return f"#x{a.k1:x}"
+        full = (1 << a.w) - 1
+        if a.k0 == 0 and a.k1 == 0 and a.ulo == 0 and a.uhi == full:
+            return "⊤"
+        bits = ""
+        if (a.k0 or a.k1) and a.w <= 16:
+            bits = " " + "".join("1" if a.k1 >> i & 1 else "0" if a.k0 >> i & 1 else "?" for i in reversed(range(a.w)))
+        return f"[{a.ulo}, {a.uhi}]{bits}"
+
     def forward(self, op: str, args: Sequence[BV]) -> BV:
         return forward(self.w, op, args)
 

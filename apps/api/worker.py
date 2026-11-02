@@ -16,7 +16,7 @@ from hope_engine.syntax.ast import pretty
 from hope_engine.trace.events import Event, to_json
 
 KILL_GRACE_S = 2.0
-NOISY = {"candidate_expanded", "pruned", "hole_filled", "hole_ranked"}
+NOISY = {"candidate_expanded", "pruned", "hole_filled", "hole_ranked", "analysis"}
 MAX_NOISY_PER_SECOND = 300
 
 

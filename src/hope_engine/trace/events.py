@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -12,6 +13,7 @@ class Event:
     seq: int
     kind: str
     payload: dict[str, object] = field(default_factory=dict)
+    t: float = 0.0  # seconds since the run started
 
 
 EventSink = Callable[[Event], None]
@@ -22,6 +24,7 @@ class Emitter:
         self.run_id = run_id
         self._sink = sink
         self._seq = 0
+        self._start = time.monotonic()
 
     @property
     def enabled(self) -> bool:
@@ -30,7 +33,7 @@ class Emitter:
     def emit(self, kind: str, payload: dict[str, object] | None = None) -> None:
         if self._sink is None:
             return
-        self._sink(Event(self.run_id, self._seq, kind, payload or {}))
+        self._sink(Event(self.run_id, self._seq, kind, payload or {}, round(time.monotonic() - self._start, 4)))
         self._seq += 1
 
 
@@ -48,6 +51,7 @@ def to_json(event: Event) -> str:
             "seq": event.seq,
             "kind": event.kind,
             "payload": event.payload,
+            "t": event.t,
         },
         separators=(",", ":"),
     )

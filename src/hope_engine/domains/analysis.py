@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import cast
 
 from hope_engine.concrete.verify import Example
 from hope_engine.domains.base import Domain
@@ -77,6 +78,12 @@ def analyze_underlying[A](
     return state
 
 
+def _label(n: Node) -> str:
+    if isinstance(n, Op | Var):
+        return n.name
+    return f"□ {n.nonterminal}" if isinstance(n, Hole) else str(n.value)
+
+
 class DomainAnalyzer[A]:
     """Analyzer (search.py protocol) backed by a Domain; one analysis per example."""
 
@@ -102,7 +109,25 @@ class DomainAnalyzer[A]:
         pre: dict[Path, object] = {
             p: tuple(st[p] for st in per_example) for p, n in nodes.items() if isinstance(n, Hole)
         }
-        return AnalysisResult(infeasible, pre)
+        states: dict[Path, object] = dict(per_example[0]) if per_example else {}
+        return AnalysisResult(infeasible, pre, states)
+
+    def describe(self, result: AnalysisResult, partial: Node, examples: tuple[Example, ...]) -> dict[str, object]:
+        """Event payload: the first example and the abstract value of every node of `partial` for it."""
+        order, nodes = _tree(partial)
+        rows: list[dict[str, object]] = []
+        for p in order:
+            n = nodes[p]
+            state = result.states.get(p)
+            shown = self.domain.show(cast("A", state)) if state is not None else "?"
+            rows.append({"path": list(p), "label": _label(n), "state": shown})
+        first = examples[0] if examples else None
+        return {
+            "inputs": dict(first.inputs) if first else {},
+            "output": first.output if first else None,
+            "infeasible": result.infeasible,
+            "nodes": rows,
+        }
 
     def compatible(
         self,

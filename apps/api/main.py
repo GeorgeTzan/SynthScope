@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from apps.api.worker import RunManager, TooManyRuns
-from hope_engine.bench.runner import RunConfig
+from hope_engine.bench.report import summarize
+from hope_engine.bench.runner import RunConfig, load_records
 from hope_engine.concrete.bitvector import UnsupportedOperator
 from hope_engine.enumeration.search import Problem
 from hope_engine.sygus.parser import SygusError, parse_sygus
@@ -49,9 +52,53 @@ def _parse(text: str) -> Problem:
     return problem
 
 
-def create_app(manager: RunManager | None = None) -> FastAPI:
+def _natural(name: str) -> list[object]:
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", name)]
+
+
+def _corpora(root: Path) -> dict[str, list[str]]:
+    if not root.is_dir():
+        return {}
+    out = {d.name: sorted((f.name for f in d.glob("*.sl")), key=_natural) for d in sorted(root.iterdir()) if d.is_dir()}
+    return {k: v for k, v in out.items() if v}
+
+
+def create_app(
+    manager: RunManager | None = None,
+    bench_dir: Path = Path("benchmarks"),
+    results_dir: Path = Path("results"),
+) -> FastAPI:
     mgr = manager or RunManager()
     app = FastAPI(title="SynthScope API")
+
+    @app.get("/api/benchmarks")
+    def list_benchmarks() -> dict[str, dict[str, list[str]]]:
+        return {"corpora": _corpora(bench_dir)}
+
+    @app.get("/api/benchmarks/{corpus}/{name}")
+    def get_benchmark(corpus: str, name: str) -> dict[str, str]:
+        # only names that appear in the directory listing are served, so a path can never leave the corpus folder
+        if name not in _corpora(bench_dir).get(corpus, []):
+            raise HTTPException(404, "unknown benchmark")
+        return {"text": (bench_dir / corpus / name).read_text(encoding="utf-8")}
+
+    @app.get("/api/results")
+    def results() -> dict[str, list[dict[str, object]]]:
+        rows: list[dict[str, object]] = []
+        for f in sorted(results_dir.glob("*/*.jsonl")) if results_dir.is_dir() else []:
+            s = summarize(load_records(f))
+            rows.append(
+                {
+                    "corpus": f.parent.name,
+                    "config": f.stem,
+                    "total": s["total"],
+                    "solved": s["solved"],
+                    "validated": s["validated"],
+                    "mean_seconds_solved": s["mean_seconds_solved"],
+                    "total_nodes": s["total_nodes"],
+                }
+            )
+        return {"results": rows}
 
     @app.post("/api/runs")
     def create_run(req: RunRequest) -> dict[str, str]:
