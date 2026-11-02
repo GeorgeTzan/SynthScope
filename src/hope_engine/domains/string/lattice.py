@@ -10,6 +10,7 @@ Itv is an integer interval. TOP is the untyped top (any string or int); BOT is e
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 INF = 1 << 62
 
@@ -107,6 +108,7 @@ def _join_pat(a: str, b: str) -> str:
     return "".join(x if x == y else "*" for x, y in zip(a, b, strict=False))
 
 
+@lru_cache(maxsize=1 << 18)  # pure; the search repeats the same meets
 def meet(a: A, b: A) -> A:
     if a is BOT or b is BOT:
         return BOT

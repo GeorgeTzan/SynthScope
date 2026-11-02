@@ -8,6 +8,7 @@ Bottom is canonical: ulo > uhi.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,7 @@ def bottom(w: int) -> BV:
     return BV(w, 0, 0, 1, 0, 1, 0)
 
 
+@lru_cache(maxsize=1 << 18)  # pure function of ints; the search repeats the same meets thousands of times
 def reduce_(w: int, k0: int, k1: int, ulo: int, uhi: int, slo: int, shi: int) -> BV:
     """Iterated reduction rho: propagate information between the three domains to a fixpoint."""
     m = (1 << w) - 1
@@ -100,6 +102,8 @@ def alpha(w: int, v: int) -> BV:
 def meet(a: BV, b: BV) -> BV:
     if a.is_bottom or b.is_bottom:
         return bottom(a.w)
+    if a == b:
+        return a
     return reduce_(
         a.w,
         a.k0 | b.k0,
