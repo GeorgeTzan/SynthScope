@@ -9,7 +9,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest", "hypothesis", "z3-solver", "ruff", "mypy", "fastapi", "uvicorn", "websockets", "httpx"]
+dev = ["pytest", "hypothesis", "z3-solver", "ruff", "mypy", "fastapi", "uvicorn", "websockets", "httpx", "matplotlib"]
 api = ["fastapi", "uvicorn", "websockets", "httpx"]
 
 [tool.setuptools.packages.find]
