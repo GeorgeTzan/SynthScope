@@ -132,6 +132,8 @@ def summary(rows: list[Row]) -> list[dict[str, Any]]:
                 "mean_seconds": total / len(cells) if cells else None,
                 "median_nodes": med("nodes"),
                 "median_analyzer_calls": med("analyzer_calls"),
+                "total_nodes": sum(x["nodes"] for x in cells) if cells else None,
+                "total_seconds": total if cells else None,
                 "analysis_share": sum(x["analysis_seconds"] for x in cells) / total if total else None,
                 "meta_share": sum(x["meta_seconds"] for x in cells) / total if total else None,
             })

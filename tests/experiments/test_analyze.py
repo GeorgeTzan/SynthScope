@@ -32,6 +32,7 @@ def test_summary_uses_common_set_only() -> None:
     assert s["leftmost"]["common"] == 1 and s["leftmost"]["median_nodes"] == 100
     assert s["random"]["solved_mean"] == 1 and s["meta"]["solved_mean"] == 2
     assert s["meta"]["median_nodes"] == 20 and s["meta"]["analysis_share"] == 0.5
+    assert s["leftmost"]["total_nodes"] == 100 and s["meta"]["total_seconds"] == 0.4
 
 
 def test_solved_counts_over_seeds() -> None:

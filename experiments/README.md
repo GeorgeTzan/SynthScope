@@ -46,3 +46,9 @@ Pilot timings are not reported: the pilot shared the machine with other runs.
 
 - `gen_suite.py`, `hd8.py`: build the suites. `run.py`: run all configurations, resumable. `analyze.py`: CSV and figures.
 - Results: `results/exp8/runs.csv`, `summary.csv`, `paired.csv`. Figures: `report/figures/`.
+
+## Note on timing
+
+Configurations run three at a time, so the last one of a suite can end up running alone and faster. In the committed
+results `c3_constrained` was rerun on both suites beside two other jobs. Node counts do not depend on load; treat
+them as the primary measure, and treat time differences of a few percent as noise.
