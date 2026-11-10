@@ -44,3 +44,14 @@ def test_sygus_round_trip() -> None:
 def test_impossible_request_raises() -> None:
     with pytest.raises(SuiteError, match="size 1"):
         make_suite(seed=0, sizes=(1,), per_size=25, max_tries=500)
+
+
+def test_main_replaces_only_its_own_files(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from experiments.gen_suite import main
+
+    other, stale = tmp_path / "hd-01.sl", tmp_path / "s3_99.sl"
+    other.write_text("keep")
+    stale.write_text("old")
+    assert main(["--out", str(tmp_path), "--per-size", "2"]) == 0
+    assert other.read_text() == "keep" and not stale.exists()
+    assert len(list(tmp_path.glob("s*_*.sl"))) == 8

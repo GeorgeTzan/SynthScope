@@ -120,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     suite = make_suite(seed=args.seed, per_size=args.per_size)
     args.out.mkdir(parents=True, exist_ok=True)
-    for old in args.out.glob("*.sl"):
+    for old in args.out.glob("s[0-9]*_[0-9][0-9].sl"):
         old.unlink()
     for name, target, examples in suite:
         (args.out / f"{name}.sl").write_text(to_sygus(name, target, examples, args.seed), encoding="utf-8")
