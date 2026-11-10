@@ -55,7 +55,8 @@ Open http://localhost:5173. Set `API_URL=http://localhost:PORT` if the API runs 
 .venv/bin/python -m hope_engine.cli report results/*.jsonl
 ```
 
-Policies: `hope` (meta analysis), `leftmost`, `meta_off` (random hole). Problems are SyGuS-IF files.
+Policies: `hope` (meta analysis), `leftmost`, `meta_off` (random hole), `constrained` (most constrained hole first,
+bitvectors only). `--component-size N` sets the largest bottom-up component (default 3). Problems are SyGuS-IF files.
 
 ## Benchmarks
 
@@ -68,6 +69,25 @@ scripts/run_paper_ablations.sh duet 20 50000 24 0     # dir, timeout s, node cap
 
 Hacker's Delight solutions are checked with Z3. At the sampled budget in `results/README.md` the four configurations
 solve nearly the same problems, so this repository makes no claim of reproducing the paper's reported gains.
+
+## Experiments (8-bit)
+
+The course experiment compares four hole-selection strategies on 8-bit bitvector problems: `leftmost`, `random`,
+`meta` (the paper's Algorithm 2) and `constrained` (ours). The write-up is [`report/report.pdf`](report/report.pdf) (in Greek).
+
+```bash
+scripts/fetch_benchmarks.sh                              # once, for the Hacker's Delight suite
+PYTHON=.venv/bin/python experiments/run_all.sh           # about 3.5 hours on a 2-core laptop; resumable
+bash report/build.sh                                     # needs pandoc and xelatex
+```
+
+`run_all.sh` builds both suites, runs 16 configurations per suite (30 s per problem, 3 at a time) into
+`results/exp8/`, and writes `runs.csv`, `summary.csv`, `paired.csv` and the figures in `report/figures/`.
+Frozen parameters and the pilot are described in [`experiments/README.md`](experiments/README.md).
+
+Result in one line: every strategy solves the same problems (85 of 100 generated, 15 of 44 Hacker's Delight);
+`constrained` explores 7% fewer candidates than `leftmost` and 12% fewer than `random` and `meta` in plain top-down
+search, and `meta` behaves like `random` on this small grammar.
 
 ## Tests
 
@@ -84,5 +104,7 @@ cd apps/web && npx vitest run
 | `apps/api/` | FastAPI + websocket server streaming engine events |
 | `apps/web/` | SvelteKit 5 dashboard |
 | `research/` | paper mapping, operator matrix, known deviations from the paper |
-| `results/` | ablation tables |
+| `experiments/` | 8-bit experiment: suite generator, runner, analysis |
+| `report/` | technical report (Greek), figures, build script |
+| `results/` | ablation tables; `exp8/` holds the 8-bit experiment CSVs |
 | `scripts/` | benchmark download and ablation runners |

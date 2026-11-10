@@ -22,3 +22,13 @@ until the real Duet/HardBench/Bitvec corpora are run (see `research/benchmarks.m
 Duet 5/5/5/5, Bitvec-cond 1/1/1/1, Deobfusc 5/6/5/4, Hacker's Delight 5/5/5/5. No consistent advantage for HOPE at this
 budget; this is a sample on a slow Python engine, not a reproduction of the paper's figures. CSV comparisons are in each
 corpus folder; JSONL is git-ignored. Regenerate: `scripts/fetch_benchmarks.sh` then `scripts/run_paper_ablations.sh DIR 20 50000 24 0`.
+
+## 8-bit experiment (2026-11-10)
+
+`exp8/runs.csv` (one row per run, 2304 rows), `exp8/summary.csv` and `exp8/paired.csv`: four strategies, component sizes
+1 and 3, on 100 generated 8-bit problems and 44 Hacker's Delight problems rewritten to 8 bits; 30 s per run, commit
+`77d8b64`. Setup in `experiments/README.md`, discussion in `report/report.pdf`. Regenerate with `experiments/run_all.sh`.
+
+`c3_constrained` was run a second time on both suites: in the first pass it was the last configuration and ran with no
+other job beside it, which made it about twice as fast as the rest. The committed rows come from the rerun, made
+beside two other jobs like every other configuration.
