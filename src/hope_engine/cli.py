@@ -11,7 +11,7 @@ from hope_engine.bench.runner import RunConfig, load_records, run_file, run_suit
 
 
 def _add_run_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--policy", choices=["hope", "leftmost", "meta_off"], default="hope")
+    p.add_argument("--policy", choices=["hope", "leftmost", "meta_off", "constrained"], default="hope")
     p.add_argument("--holes", type=int, default=3, help="max holes filled at once (hope only)")
     p.add_argument("--timeout", type=float, default=60.0)
     p.add_argument("--nodes", type=int, default=100_000)

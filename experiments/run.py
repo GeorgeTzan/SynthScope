@@ -19,6 +19,7 @@ def configs(
         out.append((f"c{c}_leftmost", ["--policy", "leftmost", *tail]))
         out += [(f"c{c}_random_s{s}", ["--policy", "meta_off", "--seed", str(s), *tail]) for s in seeds]
         out += [(f"c{c}_meta_s{s}", ["--policy", "hope", "--holes", "1", "--seed", str(s), *tail]) for s in seeds]
+        out.append((f"c{c}_constrained", ["--policy", "constrained", *tail]))
     return out
 
 

@@ -18,10 +18,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-STRATEGIES = ("leftmost", "random", "meta")
-COLORS = {"leftmost": "#1f77b4", "random": "#ff7f0e", "meta": "#d62728"}
+STRATEGIES = ("leftmost", "random", "meta", "constrained")
+COLORS = {"leftmost": "#1f77b4", "random": "#ff7f0e", "meta": "#d62728", "constrained": "#2ca02c"}
 MEASURES = ("seconds", "nodes", "analyzer_calls", "analysis_seconds", "meta_seconds", "program_size")
-FILE = re.compile(r"c(\d+)_(leftmost|random|meta)(?:_s(\d+))?\.jsonl")
+FILE = re.compile(r"c(\d+)_(leftmost|random|meta|constrained)(?:_s(\d+))?\.jsonl")
 
 
 class Row(TypedDict):
@@ -211,17 +211,20 @@ def _figures(pp: PerProblem, suite: str, out: Path) -> None:
     fig, axes = _panels(sizes)
     drawn = False
     for ax, c in zip(axes, sizes, strict=True):
-        pts = [
-            (pp[(suite, c, "leftmost", k[3])]["nodes"], v["nodes"])
-            for k, v in pp.items()
-            if k[:3] == (suite, c, "meta") and v["solved"] and pp.get((suite, c, "leftmost", k[3]), {}).get("solved")
-        ]
-        if pts:
-            drawn = True
-            hi = max(max(p) for p in pts) * 1.5
-            ax.plot([1, hi], [1, hi], color="grey", linewidth=0.8)
-            ax.scatter([p[0] for p in pts], [p[1] for p in pts], s=14, color=COLORS["meta"], alpha=0.7)
-        ax.set(title=title.format(c), xlabel="Κόμβοι, leftmost", ylabel="Κόμβοι, meta", xscale="log", yscale="log")
+        hi = 1.0
+        for s in ("meta", "constrained"):
+            pts = [
+                (pp[(suite, c, "leftmost", k[3])]["nodes"], v["nodes"])
+                for k, v in pp.items()
+                if k[:3] == (suite, c, s) and v["solved"] and pp.get((suite, c, "leftmost", k[3]), {}).get("solved")
+            ]
+            if pts:
+                drawn = True
+                hi = max(hi, max(max(p) for p in pts) * 1.5)
+                ax.scatter([p[0] for p in pts], [p[1] for p in pts], s=14, color=COLORS[s], alpha=0.6, label=s)
+        ax.plot([1, hi], [1, hi], color="grey", linewidth=0.8)
+        ax.set(title=title.format(c), xlabel="Κόμβοι, leftmost", ylabel="Κόμβοι, άλλη στρατηγική", xscale="log", yscale="log")
+        ax.legend()
     _save(fig, out / f"scatter_{suite}.pdf", drawn)
 
 

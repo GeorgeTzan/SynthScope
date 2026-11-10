@@ -6,7 +6,7 @@ import heapq
 import itertools
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal, Protocol
 
 from hope_engine.concrete.bitvector import UnsupportedOperator
@@ -83,6 +83,7 @@ class PickContext:
     problem: Problem
     comps: ComponentMap
     emit: Emit = _no_emit
+    analysis: AnalysisResult | None = None
 
 
 class HolePolicy(Protocol):
@@ -200,7 +201,7 @@ def search(
             if result.infeasible:
                 em.emit("pruned", {"program": pretty(partial), "reason": "infeasible"})
                 continue
-            positions, noprune = policy.pick(partial, ctx)
+            positions, noprune = policy.pick(partial, replace(ctx, analysis=result))
             cand_lists: list[list[Node]] = []
             for pos in positions:
                 hole = subterm(partial, pos)

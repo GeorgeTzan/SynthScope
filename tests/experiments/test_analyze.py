@@ -70,9 +70,13 @@ def test_main_end_to_end(tmp_path: Path) -> None:
     res, figs = tmp_path / "res", tmp_path / "figs"
     _write(res / "suite8" / "c1_leftmost.jsonl", "leftmost", 0, (40, 400))
     _write(res / "suite8" / "c1_meta_s0.jsonl", "hope", 0, (30, 100))
+    _write(res / "suite8" / "c1_constrained.jsonl", "constrained", 0, (20, 50))
     assert main(["--results", str(res), "--figures", str(figs)]) == 0
     assert (res / "summary.csv").exists() and (res / "paired.csv").exists()
     lines = (res / "runs.csv").read_text().splitlines()
-    assert len(lines) == 7 and "suite8,1,meta,0,b.sl,solved" in lines[5] + lines[4]
+    assert len(lines) == 10 and "suite8,1,meta,0,b.sl,solved" in lines[5]
+    assert "suite8,1,constrained,,a.sl,solved" in lines[7]
+    pairs = (res / "paired.csv").read_text()
+    assert "suite8,1,constrained,leftmost,2,0,0" in pairs and "suite8,1,constrained,meta,2,0,0" in pairs
     for name in ("cactus_suite8.pdf", "nodes_by_size_suite8.pdf", "scatter_suite8.pdf"):
         assert (figs / name).stat().st_size > 0, name

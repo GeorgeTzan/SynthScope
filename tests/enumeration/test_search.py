@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import cast
 
 from hope_engine.concrete.verify import Example, satisfies
@@ -133,3 +134,22 @@ def test_null_analyzer_emits_no_analysis_events() -> None:
     got: list[Event] = []
     run(REC, (Example({"x": 3}, 4),), sink=got.append)
     assert not any(e.kind == "analysis" for e in got)
+
+
+def test_policy_receives_the_analysis_of_the_candidate() -> None:
+    from hope_engine.bench.runner import RunConfig, build_search
+    from hope_engine.enumeration.search import LeftmostPolicy as Left
+    from hope_engine.sygus.parser import load_problem
+    from hope_engine.syntax.ast import holes as holes_of
+
+    problem = load_problem(Path(__file__).parents[1] / "sygus" / "fixtures" / "bv.sl")
+    seen: list[bool] = []
+
+    class Recording(Left):
+        def pick(self, partial, ctx):  # type: ignore[no-untyped-def]
+            seen.append(ctx.analysis is not None and set(holes_of(partial)) <= set(ctx.analysis.preconditions))
+            return super().pick(partial, ctx)
+
+    analyzer, _ = build_search(problem, RunConfig("leftmost", 1, 1000, 30.0, 0))
+    search(problem, analyzer, Recording(), Budget(1000, 30.0))
+    assert seen and all(seen)

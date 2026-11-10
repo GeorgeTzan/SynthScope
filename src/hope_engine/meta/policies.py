@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import math
 import random
+from collections.abc import Callable
+from typing import Any
 
 from hope_engine.enumeration.search import LeftmostPolicy, PickContext
 from hope_engine.meta.lattice import MetaDomain
 from hope_engine.meta.rank import choose_set, rank_hole_sets
 from hope_engine.syntax.ast import Node, Path, holes
 
-__all__ = ["HopePolicy", "LeftmostPolicy", "MetaOffPolicy"]
+__all__ = ["ConstrainedPolicy", "HopePolicy", "LeftmostPolicy", "MetaOffPolicy"]
 
 
 class HopePolicy[M]:
@@ -31,6 +34,30 @@ class HopePolicy[M]:
             },
         )
         return positions, noprune
+
+
+class ConstrainedPolicy:
+    """Most constrained hole first: the hole whose necessary precondition, taken from the underlying analysis of
+    the current candidate, admits the fewest concrete values over all examples. Ties go to the leftmost hole."""
+
+    def __init__(self, cardinality: Callable[[Any], int]) -> None:
+        self.cardinality = cardinality
+
+    def pick(self, partial: Node, ctx: PickContext) -> tuple[tuple[Path, ...], bool]:
+        hs = holes(partial)
+        if ctx.analysis is None:
+            return (hs[0],), False
+        pre = ctx.analysis.preconditions
+
+        def freedom(pos: Path) -> int:
+            values = pre.get(pos)
+            return math.prod(self.cardinality(v) for v in values) if isinstance(values, tuple) else -1
+
+        scores = [freedom(p) for p in hs]
+        known = [s for s in scores if s >= 0]
+        if not known:
+            return (hs[0],), False
+        return (hs[scores.index(min(known))],), False
 
 
 class MetaOffPolicy:

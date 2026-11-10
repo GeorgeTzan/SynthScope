@@ -87,6 +87,14 @@ def reduce_(w: int, k0: int, k1: int, ulo: int, uhi: int, slo: int, shi: int) ->
         k0, k1, ulo, uhi, slo, shi = nk0, nk1, nulo, nuhi, nslo, nshi
 
 
+def cardinality(a: BV) -> int:
+    """Upper bound on the number of concrete values the abstract value stands for."""
+    if a.is_bottom:
+        return 0
+    free = a.w - (a.k0 | a.k1).bit_count()
+    return min(1 << free, a.uhi - a.ulo + 1, a.shi - a.slo + 1)
+
+
 def top(w: int) -> BV:
     half = 1 << (w - 1)
     return BV(w, 0, 0, 0, (1 << w) - 1, -half, half - 1)

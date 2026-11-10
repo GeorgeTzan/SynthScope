@@ -16,6 +16,7 @@ from typing import Any, Literal
 from hope_engine.concrete.bitvector import UnsupportedOperator
 from hope_engine.concrete.verify import Example, satisfies
 from hope_engine.domains.analysis import DomainAnalyzer
+from hope_engine.domains.bitvector.lattice import cardinality
 from hope_engine.domains.bitvector.ops import BitvectorDomain
 from hope_engine.domains.string.ops import StringDomain
 from hope_engine.enumeration.search import (
@@ -29,7 +30,7 @@ from hope_engine.enumeration.search import (
     search,
 )
 from hope_engine.meta.bitvector import BitvectorMeta
-from hope_engine.meta.policies import HopePolicy, MetaOffPolicy
+from hope_engine.meta.policies import ConstrainedPolicy, HopePolicy, MetaOffPolicy
 from hope_engine.meta.string import StringMeta
 from hope_engine.sygus.parser import SygusError, load_problem
 from hope_engine.syntax.ast import Node, pretty, size
@@ -41,7 +42,7 @@ KILL_GRACE_S = 2.0
 
 @dataclass(frozen=True)
 class RunConfig:
-    policy: Literal["hope", "leftmost", "meta_off"]
+    policy: Literal["hope", "leftmost", "meta_off", "constrained"]
     max_holes: int
     max_nodes: int
     timeout_s: float
@@ -155,6 +156,8 @@ def build_search(problem: Problem, config: RunConfig) -> tuple[_CountingAnalyzer
         inner = HopePolicy(meta, config.seed, config.max_holes)
     elif config.policy == "meta_off":
         inner = MetaOffPolicy(config.seed)
+    elif config.policy == "constrained":
+        inner = ConstrainedPolicy(cardinality)
     else:
         inner = LeftmostPolicy()
     return _CountingAnalyzer(base), _CountingPolicy(inner)
@@ -252,6 +255,8 @@ def run_file(path: Path, config: RunConfig) -> RunRecord:
     try:
         problem = load_problem(path)
     except (UnsupportedOperator, SygusError):
+        return RunRecord(path.name, "unsupported", False, 0, 0, 0, 0.0, None, None, config, environment())
+    if config.policy == "constrained" and problem.domain != "bv":
         return RunRecord(path.name, "unsupported", False, 0, 0, 0, 0.0, None, None, config, environment())
     return run_problem(problem, path.name, config)
 
