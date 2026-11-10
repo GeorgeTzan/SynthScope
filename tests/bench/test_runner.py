@@ -132,3 +132,30 @@ def test_search_built_for_the_api_emits_analysis_events() -> None:
     got: list[Event] = []
     search(problem, analyzer, policy, Budget(500, None), got.append)
     assert any(e.kind == "analysis" for e in got)
+
+
+def test_component_size_one_still_solves() -> None:
+    r = run_file(BV, RunConfig("hope", 1, 200000, 30.0, 0, component_size=1))
+    assert r.status == "solved" and r.validated
+
+
+def test_component_size_changes_the_search() -> None:
+    a = run_file(BV, RunConfig("leftmost", 1, 200000, 30.0, 0, component_size=1))
+    b = run_file(BV, RunConfig("leftmost", 1, 200000, 30.0, 0, component_size=3))
+    assert a.status == b.status == "solved" and a.nodes != b.nodes
+
+
+def test_timing_fields() -> None:
+    h = run_file(BV, CFG)
+    assert 0.0 < h.analysis_seconds <= h.seconds and 0.0 < h.meta_seconds <= h.seconds
+    assert run_file(BV, RunConfig("leftmost", 1, 20000, 30.0, 0)).meta_seconds == 0.0
+
+
+def test_old_records_still_load(tmp_path: Path) -> None:
+    old = {"benchmark": "b", "status": "solved", "validated": True, "nodes": 1, "analyzer_calls": 1,
+           "meta_calls": 0, "seconds": 0.1, "program_size": 1, "program": "x",
+           "config": {"policy": "hope", "max_holes": 1, "max_nodes": 10, "timeout_s": 1.0, "seed": 0}, "env": {}}
+    f = tmp_path / "old.jsonl"
+    f.write_text(json.dumps(old) + "\n")
+    rec = runner.load_records(f)[0]
+    assert rec.config.component_size == 3 and rec.analysis_seconds == 0.0

@@ -16,6 +16,7 @@ def _add_run_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--timeout", type=float, default=60.0)
     p.add_argument("--nodes", type=int, default=100_000)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--component-size", type=_positive, default=3, help="largest bottom-up component")
 
 
 def _positive(text: str) -> int:
@@ -26,7 +27,7 @@ def _positive(text: str) -> int:
 
 
 def _config(a: argparse.Namespace) -> RunConfig:
-    return RunConfig(a.policy, a.holes, a.nodes, a.timeout, a.seed)
+    return RunConfig(a.policy, a.holes, a.nodes, a.timeout, a.seed, a.component_size)
 
 
 def main(argv: list[str] | None = None) -> int:

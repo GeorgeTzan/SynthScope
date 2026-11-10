@@ -46,6 +46,7 @@ class RunConfig:
     max_nodes: int
     timeout_s: float
     seed: int
+    component_size: int = 3
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,8 @@ class RunRecord:
     program: str | None
     config: RunConfig
     env: dict[str, str]
+    analysis_seconds: float = 0.0
+    meta_seconds: float = 0.0
 
 
 def validate(program: Node, examples: tuple[Example, ...], width: int | None) -> bool:
@@ -70,16 +73,24 @@ def validate(program: Node, examples: tuple[Example, ...], width: int | None) ->
 
 class _CountingAnalyzer:
     def __init__(self, inner: Analyzer) -> None:
-        self.inner, self.calls = inner, 0
+        self.inner, self.calls, self.seconds = inner, 0, 0.0
 
     def analyze(self, partial: Node, examples: tuple[Example, ...]) -> AnalysisResult:
         self.calls += 1
-        return self.inner.analyze(partial, examples)
+        start = time.perf_counter()
+        try:
+            return self.inner.analyze(partial, examples)
+        finally:
+            self.seconds += time.perf_counter() - start
 
     def compatible(
         self, result: AnalysisResult, partial: Node, pos: TreePath, component: Node, examples: tuple[Example, ...]
     ) -> bool:
-        return self.inner.compatible(result, partial, pos, component, examples)
+        start = time.perf_counter()
+        try:
+            return self.inner.compatible(result, partial, pos, component, examples)
+        finally:
+            self.seconds += time.perf_counter() - start
 
     def __getattr__(self, name: str) -> Any:
         """Optional analyzer extras (`describe`, for the dashboard) pass through to the wrapped analyzer."""
@@ -90,11 +101,15 @@ class _CountingAnalyzer:
 
 class _CountingPolicy:
     def __init__(self, inner: HolePolicy) -> None:
-        self.inner, self.calls = inner, 0
+        self.inner, self.calls, self.seconds = inner, 0, 0.0
 
     def pick(self, partial: Node, ctx: PickContext) -> tuple[tuple[TreePath, ...], bool]:
         self.calls += 1
-        return self.inner.pick(partial, ctx)
+        start = time.perf_counter()
+        try:
+            return self.inner.pick(partial, ctx)
+        finally:
+            self.seconds += time.perf_counter() - start
 
 
 def _git_sha() -> str:
@@ -152,15 +167,20 @@ def _work(problem: Problem, config: RunConfig, pre: Callable[[], None] | None) -
     if pre is not None:
         pre()
     current, nodes, analyzer_calls, meta_calls, seconds = problem, 0, 0, 0, 0.0
+    analysis_seconds, meta_seconds = 0.0, 0.0
     status: Status = "exhausted"
     program: Node | None = None
     verified = True
     for _ in range(MAX_CEGIS_ROUNDS + 1):
         analyzer, policy = build_search(current, config)
-        r = search(current, analyzer, policy, Budget(config.max_nodes, config.timeout_s))
+        r = search(
+            current, analyzer, policy, Budget(config.max_nodes, config.timeout_s), component_size=config.component_size
+        )
         nodes += r.nodes
         analyzer_calls += analyzer.calls
         meta_calls += policy.calls if config.policy == "hope" else 0
+        analysis_seconds += analyzer.seconds
+        meta_seconds += policy.seconds if config.policy == "hope" else 0.0
         seconds += r.seconds
         status, program = r.status, r.program
         if program is None or problem.spec is None:
@@ -187,6 +207,8 @@ def _work(problem: Problem, config: RunConfig, pre: Callable[[], None] | None) -
         "analyzer_calls": analyzer_calls,
         "meta_calls": meta_calls,
         "seconds": seconds,
+        "analysis_seconds": analysis_seconds,
+        "meta_seconds": meta_seconds,
         "program": pretty(program) if program is not None else None,
         "program_size": size(program) if program is not None else None,
     }
@@ -220,7 +242,8 @@ def run_problem(
     env = environment()
     if data is not None:
         return RunRecord(name, data["status"], data["validated"], data["nodes"], data["analyzer_calls"],
-                         data["meta_calls"], data["seconds"], data["program_size"], data["program"], config, env)
+                         data["meta_calls"], data["seconds"], data["program_size"], data["program"], config, env,
+                         data["analysis_seconds"], data["meta_seconds"])
     status: Status = "timeout" if elapsed >= config.timeout_s + KILL_GRACE_S else "crashed"
     return RunRecord(name, status, False, 0, 0, 0, elapsed, None, None, config, env)
 

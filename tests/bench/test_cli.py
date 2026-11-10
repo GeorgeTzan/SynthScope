@@ -57,3 +57,10 @@ def test_bench_limit_samples_the_same_files_for_the_same_seed(tmp_path: Path) ->
 def test_bench_rejects_a_non_positive_limit(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         main(["bench", str(_suite(tmp_path, 2)), "--limit", "0", "--out", str(tmp_path / "x.jsonl")])
+
+
+def test_component_size_flag(tmp_path: Path) -> None:
+    out = tmp_path / "r.jsonl"
+    bv = FIX / "bv.sl"
+    assert main(["bench", str(bv), "--policy", "leftmost", "--component-size", "1", "--out", str(out)]) == 0
+    assert load_records(out)[0].config.component_size == 1
