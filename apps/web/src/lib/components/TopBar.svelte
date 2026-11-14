@@ -62,8 +62,7 @@
     {/if}
   </div>
 
-  <div class="spacer"></div>
-
+  <div class="actions">
   <button class="run" onclick={onrun} disabled={running || app.parsed === null}><Icon name="play" size={15} /> Run</button>
   <button class="ghost" onclick={() => run.cancel()} disabled={!running}><Icon name="stop" size={14} /> Cancel</button>
   <button class="ghost" onclick={onreset} disabled={running}><Icon name="reset" size={15} /> Reset</button>
@@ -92,6 +91,7 @@
       </div>
     {/if}
   </div>
+  </div>
 </header>
 
 <style>
@@ -101,14 +101,14 @@
   .tag { font-size: 0.68rem; color: var(--muted); line-height: 1.25; max-width: 14rem; margin-left: 0.5rem; }
   .chip { display: flex; align-items: center; gap: 0.5rem; border: 1px solid var(--line-2); border-radius: 10px; padding: 0.5rem 0.8rem; background: rgba(255, 255, 255, 0.02); color: var(--text); font-size: 0.85rem; }
   .project { color: var(--text); }
-  .group { display: flex; align-items: center; gap: 0.5rem; }
+  .group { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; min-width: 0; }
   .lab { color: var(--muted); font-size: 0.82rem; }
   .seg { display: flex; border: 1px solid var(--line-2); border-radius: 10px; overflow: hidden; }
   .seg button { background: transparent; border: 0; padding: 0.5rem 0.95rem; color: var(--muted); cursor: pointer; }
   .seg button.on { background: linear-gradient(180deg, #7b5cf5, #6444e0); color: #fff; box-shadow: 0 0 18px -4px var(--violet); }
   .seg button:disabled { cursor: not-allowed; opacity: 0.6; }
-  select, input { background: var(--panel-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 9px; padding: 0.45rem 0.6rem; font: inherit; font-size: 0.85rem; max-width: 13rem; }
-  .spacer { flex: 1; }
+  select, input { background: var(--panel-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 9px; padding: 0.45rem 0.6rem; font: inherit; font-size: 0.85rem; max-width: min(13rem, 100%); }
+  .actions { display: flex; align-items: center; gap: 0.7rem; margin-left: auto; flex-wrap: wrap; }
   button.run { display: flex; align-items: center; gap: 0.45rem; background: linear-gradient(180deg, #8b6cff, #6a47ea); border: 1px solid #a48cff; color: #fff; border-radius: 10px; padding: 0.55rem 1.15rem; font-weight: 600; cursor: pointer; box-shadow: 0 6px 22px -8px var(--violet); }
   button.ghost { display: flex; align-items: center; gap: 0.45rem; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--line-2); border-radius: 10px; padding: 0.55rem 1rem; cursor: pointer; color: var(--text); }
   button:disabled { opacity: 0.45; cursor: not-allowed; }

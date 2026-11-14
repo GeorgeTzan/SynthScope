@@ -34,6 +34,7 @@ body {
     radial-gradient(1200px 600px at 70% -10%, rgba(139, 108, 255, 0.1), transparent 60%),
     radial-gradient(900px 500px at 0% 100%, rgba(53, 224, 198, 0.05), transparent 60%),
     var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   font-family: var(--sans);
   font-size: 14px;
