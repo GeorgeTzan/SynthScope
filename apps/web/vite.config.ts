@@ -5,5 +5,6 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   plugins: [sveltekit(), svelteTesting()],
   server: { proxy: { '/api': { target: process.env.API_URL ?? 'http://localhost:8000', ws: true } } },
+  preview: { allowedHosts: true },
   test: { environment: 'jsdom', include: ['src/**/*.test.ts'] }
 });
